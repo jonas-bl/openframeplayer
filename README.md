@@ -1,119 +1,137 @@
 # FramePlayer
 
-A modern, frame-accurate desktop video player. Electron shell + React/Tailwind
-UI, with **mpv** as the video engine driven over JSON IPC. Built for precise
-frame review: single-frame stepping, zoom/pan, brightness/contrast, horizontal
-flip, and lossless PNG screenshots of the exact decoded pixels.
+**A frame-accurate desktop video player for people who need to look closely.**
 
-> Windows is the primary target. The architecture keeps platform-specific bits
-> (IPC socket path, window embedding) behind small abstractions so a later
-> macOS port is a contained change.
+FramePlayer is built for the moments where regular players fall short — stepping through footage one frame at a time, scrubbing to an exact moment, zooming in on detail, and marking up what you see. It's powered by [mpv](https://mpv.io/) under the hood, so playback is fast and accurate, wrapped in a clean, modern interface.
 
-## Prerequisites
+> Windows-first. Free and open source (MIT).
 
-- Node.js 20+
-- mpv (bundled into `resources/mpv`, see below)
+---
+
+## Why FramePlayer?
+
+Most video players are built for *watching*. FramePlayer is built for *studying* footage:
+
+- 🎯 **True frame accuracy** — step forward or back exactly one frame at a time, with a live frame and timecode readout.
+- 🔍 **Zoom & pan** — magnify any part of the picture, scroll to zoom right where your cursor is, and drag to pan around.
+- 🔁 **Smart looping** — loop the whole file, loop a custom A–B section, or play in reverse.
+- ⏱️ **Instant scrubbing** — the timeline responds the moment you drag and lands on the exact frame when you let go.
+- ✏️ **Draw on the video** — annotate frames with an overlay, and click to re-center on a point of interest.
+- 📸 **Lossless screenshots** — grab a pixel-perfect PNG of the current frame, then enhance or upscale it with built-in AI tools.
+- 🪟 **Multi-window** — open as many independent players as you like, each with its own video and controls.
+- ⚙️ **Your shortcuts** — remap the keyboard controls to whatever feels natural; they're saved between sessions.
+
+---
+
+## Features
+
+### Playback & navigation
+- Play / pause, frame-step forward and backward
+- Exact (precise) seeking, plus fast scrubbing while you drag the timeline
+- Adjustable playback speed
+- Live time and frame-number display
+
+### Looping
+- Whole-file loop
+- A–B loop over a section you choose
+- Reverse playback
+
+### Picture controls
+- Zoom in/out, drag to pan, and scroll-to-zoom centered on your cursor
+- Brightness and contrast adjustment
+- Horizontal flip
+- Double-click the video to reset zoom and pan
+- One-click reset of all adjustments
+
+### Screenshots & AI tools
+- Lossless PNG capture of the current frame
+- AI super-resolution upscaling (whole image or a selected area)
+- AI image enhancement and regeneration in the built-in screenshot editor *(bring your own OpenAI / Stability API key)*
+
+### Annotation
+- Freehand drawing overlay on top of the video
+- Click-to-center / focus tool
+- Drawing tools stay in sync between the main window and the pop-out controls
+
+### Interface
+- Frameless, modern custom title bar
+- Fullscreen mode with auto-hiding controls
+- Pop-out controls window, so the controls can live separately from the video
+- Show/hide the image-adjustment panel
+- Multiple independent player windows in one app
+
+### Convenience
+- **"Open with FramePlayer"** — set it as the handler for your video files and double-click to open *(available once installed)*
+- Configurable keyboard shortcuts, saved automatically
+- Self-updating — new versions install themselves from GitHub Releases
+
+---
 
 ## Getting started
 
-```bash
-npm install
-npm run fetch:mpv     # downloads an official Windows mpv build into resources/mpv
-npm run dev           # launch in development (HMR for the renderer)
-```
+### Install (recommended)
+Download the latest **`FramePlayer-Setup.exe`** from the [Releases page](../../releases), run the installer, and you're done. FramePlayer keeps itself up to date automatically.
 
-`fetch:mpv` pulls a prebuilt mpv from the official `zhongfly/mpv-winbuild`
-releases and extracts it with the bundled `7za`. At runtime mpv is located via,
-in order: `MPV_PATH`, the bundled `resources/mpv`, the system `PATH`, then
-common install locations. If mpv can't be found, the UI shows a clear error
-instead of failing silently.
+> ℹ️ The installer is currently unsigned, so Windows SmartScreen may show a warning the first time you run it. Click **More info → Run anyway** to continue.
 
-## Scripts
+### Open a video
+- Launch FramePlayer and open a file from the title bar, **or**
+- Right-click a video → **Open with → FramePlayer**, **or**
+- Set FramePlayer as your default video player.
 
-| Script | Purpose |
-| --- | --- |
-| `npm run dev` | Run the app with the dev server |
-| `npm run build` | Type-check-free production build to `out/` |
-| `npm run typecheck` | Type-check main + renderer |
-| `npm test` | Unit tests (pure logic; no mpv/Electron) |
-| `npm run test:integration` | End-to-end tests against the bundled mpv |
-| `npm run package` | Build + electron-builder package |
+---
 
 ## Keyboard shortcuts
 
-All shortcuts are **rebindable** in Settings (gear icon in the title bar, or `,`).
+FramePlayer ships with sensible defaults and lets you remap everything from **Settings**. A few highlights:
 
-| Key | Action |
+| Action | Default |
 | --- | --- |
-| `Space` | Play / pause |
-| `←` / `→` | Previous / next frame |
-| `+` / `-` | Zoom in / out |
-| `D` / double-click | Reset zoom & pan |
-| Mouse drag | Pan · Mouse wheel | Zoom toward cursor |
-| `S` | Lossless screenshot (PNG) |
-| `F` | Flip horizontal |
-| `R` | Reset image corrections |
-| `I` | Show / hide image panel |
-| `F11` | Toggle fullscreen (`Esc` exits) |
-| `P` | Pop out controls into a floating window |
-| `O` | Open file |
-| `,` | Settings |
+| Play / pause | `Space` |
+| Frame step back / forward | `←` / `→` |
+| Zoom in / out | `+` / `-` |
+| Zoom toward cursor | Mouse wheel |
+| Playback speed | `Alt` + mouse wheel |
+| Lossless screenshot | `S` |
+| Fullscreen | `F11` (exit with `Esc`) |
+| Pop out controls | `P` |
+| Toggle image panel | `I` |
+| New window | `N` |
+| Settings | `,` |
 
-## Open with FramePlayer
+Open **Settings** in the app to see and change the full list — your bindings are saved between sessions.
 
-The app enforces a single instance and loads any file passed on the command
-line, so "Open with FramePlayer" reuses the running window. The Windows
-context-menu / file-association entry is registered by the NSIS installer
-(`fileAssociations` in `electron-builder.yml`) — run `npm run package`, install
-the result, and the video types gain an "Open with FramePlayer" entry. (File
-associations cannot be registered from a `npm run dev` session.)
+---
 
-## Architecture
+## About the tech
 
-Strict layering — the renderer never speaks mpv; it only dispatches semantic
-actions and reads `PlayerState`:
+FramePlayer is an [Electron](https://www.electronjs.org/) app with a [React](https://react.dev/) + [Tailwind](https://tailwindcss.com/) interface, using **mpv** as the playback engine. mpv is bundled with the installer, so there's nothing extra to set up.
 
+<details>
+<summary>Building from source</summary>
+
+```bash
+# install dependencies
+npm install
+
+# download the bundled mpv engine
+npm run fetch:mpv
+
+# run in development
+npm run dev
+
+# build an installer
+npm run package
 ```
-React UI (renderer)
-  │  semantic PlayerAction / PlayerState     ← src/shared (the contract)
-  ▼
-preload contextBridge  (window.api, window.windowControls)
-  ▼
-main IPC bridge  →  PlayerService  →  command map (action → mpv ops, pure)
-                                   →  MpvController → MpvIpcClient → mpv (named pipe)
-```
 
-Key modules:
+</details>
 
-- **`src/shared`** — the cross-process contract: `PlayerAction`, `PlayerState`,
-  IPC channel names/types. The single source of truth both sides import.
-- **`src/main/mpv/commandMap.ts`** — the one place UI actions become mpv
-  property sets / commands. Pure and exhaustively tested.
-- **`src/main/mpv`** — the engine: process spawn, JSON-IPC framing, the
-  controller, and binary/socket-path resolution.
-- **`src/main/state`** — the authoritative `PlayerStateStore` and the pure
-  mpv-property → state bindings.
-- **`src/main/embedding`** — Windows window embedding. mpv renders into the
-  video window via `--wid`; because Chromium's compositor sits above child
-  windows, the mpv child is raised above it with a small `user32`/koffi call.
-- **`src/main/window`** — the two-window pair: an opaque **video** window (mpv
-  host) and a transparent, frameless **overlay** window (the React UI) glued on
-  top. This is what makes a controls-over-video UI possible on Windows.
-- **`src/renderer`** — React components, the Zustand mirror of `PlayerState`,
-  gesture/keyboard hooks.
+---
 
-### Why two windows?
+## Contributing
 
-A native child window (mpv) does not composite through a transparent web view,
-and an opaque web page covers the embedded video. The robust solution is two
-top-level windows: video underneath, a transparent UI overlay on top, kept in
-lockstep by `PlayerWindows`. The frameless window's move/resize/min/max/close
-are driven from the overlay via IPC (`registerWindowControls`).
+Issues and pull requests are welcome. If you hit a bug or have an idea, please [open an issue](../../issues).
 
-## Testing
+## License
 
-Pure logic is covered by fast unit tests (command map, state bindings, protocol
-framing, path resolution, resize math, formatting, shortcut mapping). The
-`*.integration.test.ts` suites spawn the real bundled mpv and verify every
-mandatory feature end to end — including writing and validating a real PNG
-screenshot — and auto-skip when mpv is absent.
+[MIT](LICENSE) © Jonas Bleisteiner
