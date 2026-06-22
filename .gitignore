@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output (electron-vite -> out/, electron-builder -> release/)
+out/
+dist/
+release/
+*.tsbuildinfo
+
+# Bundled mpv engine — fetched on demand via `npm run fetch:mpv`, not committed.
+# Keep only the README that documents how to populate this folder.
+resources/mpv/*
+!resources/mpv/README.md
+
+# Downloaded models / caches (also live in userData at runtime)
+models/
+
+# Logs
+*.log
+logs/
+
+# Local env / secrets (e.g. GH_TOKEN for `npm run release`)
+.env
+.env.*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/

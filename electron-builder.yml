@@ -1,0 +1,59 @@
+appId: com.frameplayer.app
+productName: FramePlayer
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+# Where auto-update artifacts (Setup.exe + .blockmap + latest.yml) are published
+# and where the installed app checks for new versions. electron-updater reads
+# this same block at runtime. Replace owner/repo with your GitHub account and the
+# (public) repo that hosts the Releases; publishing needs a GH_TOKEN at build time.
+publish:
+  provider: github
+  owner: jonas-bl
+  repo: openframeplayer
+
+# Packaged app payload: the built main/preload/renderer plus the manifest.
+files:
+  - out/**/*
+  - package.json
+
+# onnxruntime-node loads its native addon + DirectML/ONNX Runtime DLLs from real
+# file paths, so they must live outside the asar archive (electron-builder packs
+# everything into app.asar by default). Unpack the whole module to be safe.
+asarUnpack:
+  - '**/node_modules/onnxruntime-node/**'
+
+# Bundle the mpv engine next to the app (matches locateMpv: <resources>/mpv).
+extraResources:
+  - from: resources/mpv
+    to: mpv
+    filter:
+      - '**/*'
+      - '!README.md'
+
+# Registers the app as a handler for these video types, which gives the Windows
+# "Open with > FramePlayer" entry. Combined with the single-instance + argv
+# handling in src/main/index.ts, picking a file opens it in FramePlayer.
+fileAssociations:
+  - ext: [mp4, mkv, mov, avi, webm, m4v, wmv, flv, ts]
+    name: Video file
+    description: Video file
+    role: Viewer
+
+win:
+  # 1119x1119 PNG in build/; electron-builder converts it to a multi-size .ico.
+  icon: build/icon.png
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # Adds the direct "Open with FramePlayer" right-click entry for video files.
+  include: build/installer.nsh
+  # Without this, NSIS skips associating extensions already owned by other apps.
+  artifactName: ${productName}-Setup-${version}.${ext}
