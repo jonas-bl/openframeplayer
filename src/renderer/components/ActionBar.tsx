@@ -1,25 +1,26 @@
 import { IconButton } from './IconButton'
-import { Slider } from './Slider'
 import {
   NewWindowIcon,
-  SlidersIcon,
   PenIcon,
   FocusIcon,
   TargetLockIcon,
   ZoomInIcon,
   ZoomOutIcon,
   FlipIcon,
+  RotateIcon,
   CameraIcon,
   ResetIcon,
   FullscreenIcon,
   FullscreenExitIcon,
   PopoutIcon,
+  PinIcon,
   GearIcon
 } from './icons'
 import { usePlayerStore, selectVideo } from '../state/playerStore'
 import { useUiStore } from '../state/uiStore'
 import { useAnnotationStore } from '../state/annotationStore'
 import { useCommands } from '../commands/useCommands'
+import { useFeatureVisible } from '../hooks/useMode'
 
 const ZOOM_STEP = 0.2
 
@@ -32,9 +33,10 @@ function zoomPercent(zoom: number): number {
  * Tool + image-correction cluster, embedded inline in the transport bar after
  * the timecode so it fills the empty space below the timeline. Holds the image
  * panel toggle, new window, the video tool toggles (draw / autofocus /
- * keep-centred) and — only when the (persisted) image panel is enabled — the
- * zoom, brightness, contrast, flip and reset controls. The whole group wraps to
- * the next line when the window is too narrow to fit it.
+ * keep-centred) and — only when the image panel is visible for the mode — the
+ * zoom, flip and reset controls. Brightness / contrast grading lives in the Pro
+ * analysis dock (see AdjustPanel). The whole group wraps to the next line when
+ * the window is too narrow to fit it.
  *
  * @param showToolToggles Show the draw / autofocus / keep-centred toggles. On in
  *   the pop-out too — annotation control state is synced across the group, so
@@ -49,25 +51,22 @@ export function ToolControls({
   const video = usePlayerStore(selectVideo)
   const run = useCommands()
 
-  const imagePanelVisible = useUiStore((s) => s.imagePanelVisible)
   const toolMode = useAnnotationStore((s) => s.toolMode)
   const keepCentered = useAnnotationStore((s) => s.keepCentered)
+
+  const showImagePanel = useFeatureVisible('imagePanel')
+  const showNewWindow = useFeatureVisible('newWindow')
+  const showDrawTools = useFeatureVisible('drawTools')
 
   return (
     <>
       <div className="flex items-center gap-0.5">
-        <IconButton
-          label="Show / hide image controls (I)"
-          size="sm"
-          active={imagePanelVisible}
-          onClick={() => run('toggleImagePanel')}
-        >
-          <SlidersIcon size={16} />
-        </IconButton>
-        <IconButton label="New window (N)" size="sm" onClick={() => run('newWindow')}>
-          <NewWindowIcon size={16} />
-        </IconButton>
-        {showToolToggles && (
+        {showNewWindow && (
+          <IconButton label="New window (N)" size="sm" onClick={() => run('newWindow')}>
+            <NewWindowIcon size={16} />
+          </IconButton>
+        )}
+        {showToolToggles && showDrawTools && (
           <>
             <IconButton
               label="Draw on video (B)"
@@ -97,7 +96,7 @@ export function ToolControls({
         )}
       </div>
 
-      {imagePanelVisible && (
+      {showImagePanel && (
         <>
           <span className="h-6 w-px bg-surface-600" />
 
@@ -121,17 +120,6 @@ export function ToolControls({
             </IconButton>
           </div>
 
-          <AdjustControl
-            label="Brightness"
-            value={video.brightness}
-            onChange={(value) => dispatch({ type: 'setBrightness', value })}
-          />
-          <AdjustControl
-            label="Contrast"
-            value={video.contrast}
-            onChange={(value) => dispatch({ type: 'setContrast', value })}
-          />
-
           <IconButton
             label="Flip horizontal (F)"
             size="sm"
@@ -139,6 +127,14 @@ export function ToolControls({
             onClick={() => dispatch({ type: 'toggleFlipH' })}
           >
             <FlipIcon size={16} />
+          </IconButton>
+          <IconButton
+            label="Rotate 90° clockwise"
+            size="sm"
+            active={video.rotate !== 0}
+            onClick={() => dispatch({ type: 'setRotation', degrees: video.rotate + 90 })}
+          >
+            <RotateIcon size={16} />
           </IconButton>
           <IconButton
             label="Reset corrections (R)"
@@ -170,18 +166,32 @@ export function WindowActions({
   const run = useCommands()
   const fullscreen = useUiStore((s) => s.fullscreen)
   const popoutOpen = useUiStore((s) => s.popoutOpen)
+  const alwaysOnTop = useUiStore((s) => s.alwaysOnTop)
+
+  const showScreenshot = useFeatureVisible('screenshot')
+  const showPopout = useFeatureVisible('popout')
 
   return (
     <div className="flex items-center gap-0.5">
-      <IconButton
-        label="Screenshot — click to edit, Ctrl+click to save (S)"
-        size="sm"
-        onClick={(e) => run(e.ctrlKey ? 'screenshot' : 'screenshotEditor')}
-      >
-        <CameraIcon size={16} />
-      </IconButton>
+      {showScreenshot && (
+        <IconButton
+          label="Screenshot — click to edit, Ctrl+click to save (S)"
+          size="sm"
+          onClick={(e) => run(e.ctrlKey ? 'screenshot' : 'screenshotEditor')}
+        >
+          <CameraIcon size={16} />
+        </IconButton>
+      )}
       {showWindowActions && (
         <>
+          <IconButton
+            label={alwaysOnTop ? 'Always on top — on (T)' : 'Always on top (T)'}
+            size="sm"
+            active={alwaysOnTop}
+            onClick={() => run('toggleAlwaysOnTop')}
+          >
+            <PinIcon size={16} />
+          </IconButton>
           <IconButton
             label={fullscreen ? 'Exit fullscreen (F11)' : 'Fullscreen (F11)'}
             size="sm"
@@ -190,38 +200,21 @@ export function WindowActions({
           >
             {fullscreen ? <FullscreenExitIcon size={16} /> : <FullscreenIcon size={16} />}
           </IconButton>
-          <IconButton
-            label={popoutOpen ? 'Return controls (P)' : 'Pop out controls (P)'}
-            size="sm"
-            active={popoutOpen}
-            onClick={() => run('popoutControls')}
-          >
-            <PopoutIcon size={16} />
-          </IconButton>
+          {showPopout && (
+            <IconButton
+              label={popoutOpen ? 'Return controls (P)' : 'Pop out controls (P)'}
+              size="sm"
+              active={popoutOpen}
+              onClick={() => run('popoutControls')}
+            >
+              <PopoutIcon size={16} />
+            </IconButton>
+          )}
         </>
       )}
       <IconButton label="Settings (,)" size="sm" onClick={() => run('openSettings')}>
         <GearIcon size={16} />
       </IconButton>
-    </div>
-  )
-}
-
-/** A compact labelled slider with an inline value readout. */
-function AdjustControl({
-  label,
-  value,
-  onChange
-}: {
-  label: string
-  value: number
-  onChange: (value: number) => void
-}): JSX.Element {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-zinc-400">{label}</span>
-      <Slider label={label} min={-100} max={100} value={value} onChange={onChange} className="w-24" />
-      <span className="w-7 text-right font-mono text-xs tabular-nums text-zinc-300">{value}</span>
     </div>
   )
 }

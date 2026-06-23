@@ -5,6 +5,7 @@ import type { AnnotationControl } from './annotation'
 import type { UpscaleModelId, UpscaleModelStatus, UpscaleProgress } from './upscale'
 import type { ImageGenRequest, ImageGenResult } from './imageGen'
 import type { UpdateStatus } from './update'
+import type { FileMetadata, Marker, RecentFile } from './fileMetadata'
 
 /**
  * The IPC contract between the renderer and the main process.
@@ -39,6 +40,10 @@ export const IpcChannels = {
   setControlsPopout: 'player:set-controls-popout',
   /** main -> renderer (send): the pop-out controls window opened/closed. */
   popoutChanged: 'player:popout-changed',
+  /** renderer -> main (send): open/close the pop-out analysis-panels window. */
+  setPanelPopout: 'player:set-panel-popout',
+  /** main -> renderer (send): the pop-out panels window opened/closed. */
+  panelPopoutChanged: 'player:panel-popout-changed',
   /** renderer -> main (send): the on-screen video region (physical px). */
   setVideoBounds: 'player:set-video-bounds',
   /** renderer -> main (invoke): grab a downscaled frame of the video for tracking. */
@@ -74,8 +79,69 @@ export const IpcChannels = {
   /** main -> renderer (send): auto-update status changed (broadcast to all windows). */
   updateStatusChanged: 'update:status-changed',
   /** renderer -> main (invoke): the running app's version string. */
-  appVersion: 'app:version'
+  appVersion: 'app:version',
+  /** renderer -> main (invoke): read a file's persisted metadata (resume/bookmarks). */
+  getFileMetadata: 'files:get-metadata',
+  /** renderer -> main (send): record a file's resume position (debounced on disk). */
+  saveResume: 'files:save-resume',
+  /** renderer -> main (send): replace a file's bookmark list. */
+  saveBookmarks: 'files:save-bookmarks',
+  /** renderer -> main (invoke): the recent-files list, newest first. */
+  getRecentFiles: 'files:get-recents',
+  /** renderer -> main (invoke): build/fetch the seek-bar thumbnail sprite sheet. */
+  getThumbnailSheet: 'files:get-thumbnails',
+  /** renderer -> main (invoke): export a time range as a clip / GIF / PNG sequence. */
+  exportRange: 'export:range',
+  /** main -> renderer (send): export progress changed (broadcast to the group). */
+  exportStatusChanged: 'export:status-changed',
+  /** renderer -> main (send): link/unlink this window's transport to its peers. */
+  setComparisonLink: 'compare:set-link',
+  /** main -> renderer (send): this window's transport-link state changed. */
+  comparisonLinkChanged: 'compare:link-changed'
 } as const
+
+/**
+ * What an export produces:
+ *   - `mp4`    — an H.264 + AAC clip.
+ *   - `gif`    — a looping, downscaled, audioless GIF.
+ *   - `pngseq` — every frame of the range as numbered PNGs in a folder.
+ */
+export type ExportFormat = 'mp4' | 'gif' | 'pngseq'
+
+/** Payload for {@link IpcChannels.exportRange}: the range (seconds) + target format. */
+export interface ExportRequest {
+  startSeconds: number
+  endSeconds: number
+  format: ExportFormat
+}
+
+/** Broadcast export progress (drives the export toast). */
+export type ExportStatus =
+  | { phase: 'idle' }
+  | { phase: 'running'; format: ExportFormat }
+  | { phase: 'done'; format: ExportFormat; outputPath: string }
+  | { phase: 'error'; message: string }
+
+/** Payload for {@link IpcChannels.saveResume}. */
+export interface ResumePayload {
+  path: string
+  pos: number
+  duration: number
+}
+
+/**
+ * A sprite sheet of evenly-spaced preview frames for the seek bar, packed
+ * `cols × rows` into one JPEG (sent as a data URL). Cell `i` (0-based,
+ * row-major) covers the fraction `i / (count - 1)` of the timeline.
+ */
+export interface ThumbnailSheet {
+  dataUrl: string
+  cols: number
+  rows: number
+  count: number
+  cellWidth: number
+  cellHeight: number
+}
 
 /**
  * The on-screen rectangle the video should occupy, in physical pixels relative
@@ -136,6 +202,9 @@ export const WindowChannels = {
   toggleFullscreen: 'window:toggle-fullscreen',
   isFullscreen: 'window:is-fullscreen',
   fullscreenChanged: 'window:fullscreen-changed',
+  toggleAlwaysOnTop: 'window:toggle-always-on-top',
+  isAlwaysOnTop: 'window:is-always-on-top',
+  alwaysOnTopChanged: 'window:always-on-top-changed',
   moveStart: 'window:move-start',
   move: 'window:move',
   resizeStart: 'window:resize-start',
@@ -164,6 +233,10 @@ export interface WindowControlsApi {
   toggleFullscreen(): void
   isFullscreen(): Promise<boolean>
   onFullscreenChanged(callback: (fullscreen: boolean) => void): () => void
+  /** Toggle always-on-top (picture-in-picture style) for this window. */
+  toggleAlwaysOnTop(): void
+  isAlwaysOnTop(): Promise<boolean>
+  onAlwaysOnTopChanged(callback: (onTop: boolean) => void): () => void
   /** Begin a titlebar drag; pass the pointer's screen position. */
   moveStart(point: ScreenPoint): void
   /** Continue a titlebar drag with the pointer's current screen position. */
@@ -201,6 +274,10 @@ export interface PlayerApi {
   // Pop-out controls window
   setControlsPopout(open: boolean): void
   onPopoutChanged(callback: (open: boolean) => void): () => void
+
+  // Pop-out analysis-panels window (Pro)
+  setPanelPopout(open: boolean): void
+  onPanelPopoutChanged(callback: (open: boolean) => void): () => void
 
   /** Report the on-screen video region so mpv stays clear of the chrome. */
   setVideoBounds(bounds: VideoBounds): void
@@ -256,4 +333,34 @@ export interface PlayerApi {
   onUpdateStatusChanged(callback: (status: UpdateStatus) => void): () => void
   /** The running app's version (e.g. "0.1.0"), for display. */
   getAppVersion(): Promise<string>
+
+  // Per-file metadata (resume position, recents, bookmarks)
+  /** Read a file's persisted metadata, or null when unknown. */
+  getFileMetadata(path: string): Promise<FileMetadata | null>
+  /** Record a file's resume position (bumps last-opened; debounced on disk). */
+  saveResume(payload: ResumePayload): void
+  /** Replace a file's bookmark list. */
+  saveBookmarks(path: string, bookmarks: Marker[]): void
+  /** The recent-files list, newest first. */
+  getRecentFiles(): Promise<RecentFile[]>
+  /** Build (once, cached) and fetch the seek-bar thumbnail sheet, or null. */
+  getThumbnailSheet(path: string, duration: number): Promise<ThumbnailSheet | null>
+
+  // Export (mp4 / gif / PNG sequence; encoded headlessly by mpv in main)
+  /**
+   * Export a time range of the current file. Prompts for a destination (file for
+   * clip/GIF, folder for a PNG sequence). Resolves to the output path/dir, or
+   * null if cancelled or it failed; progress is also broadcast via
+   * {@link onExportStatusChanged}.
+   */
+  exportRange(request: ExportRequest): Promise<string | null>
+  /** Subscribe to export progress (running / done / error). */
+  onExportStatusChanged(callback: (status: ExportStatus) => void): () => void
+
+  // Comparison: link this window's transport (play/pause/seek/step/speed) to
+  // every other linked window, so several videos scrub in lock-step.
+  /** Link or unlink this window's transport to its peers. */
+  setComparisonLink(linked: boolean): void
+  /** Subscribe to this window's transport-link state. */
+  onComparisonLinkChanged(callback: (linked: boolean) => void): () => void
 }

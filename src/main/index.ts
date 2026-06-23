@@ -3,6 +3,11 @@ import { app, BrowserWindow, nativeTheme } from 'electron'
 import { InstanceManager } from './app/InstanceManager'
 import { registerGlobalBridge } from './ipc/registerGlobalBridge'
 import { registerSettingsBridge } from './ipc/registerSettingsBridge'
+import { registerFileMetadataBridge } from './ipc/registerFileMetadataBridge'
+import { registerThumbnailBridge } from './ipc/registerThumbnailBridge'
+import { FileMetadataStore } from './persist/FileMetadataStore'
+import { ThumbnailService } from './thumbnails/ThumbnailService'
+import { locateMpv } from './mpv/locateMpv'
 import { registerUpscaleBridge } from './ipc/registerUpscaleBridge'
 import { registerImageGenBridge } from './ipc/registerImageGenBridge'
 import { registerUpdateBridge } from './ipc/registerUpdateBridge'
@@ -26,8 +31,11 @@ import { fileFromArgv } from './app/fileArg'
 let manager: InstanceManager | null = null
 let upscale: UpscaleService | null = null
 let updates: UpdateService | null = null
+let fileMetadata: FileMetadataStore | null = null
 let disposeBridge: () => void = () => {}
 let disposeSettings: () => void = () => {}
+let disposeFileMetadata: () => void = () => {}
+let disposeThumbnails: () => void = () => {}
 let disposeUpscale: () => void = () => {}
 let disposeImageGen: () => void = () => {}
 let disposeUpdate: () => void = () => {}
@@ -45,12 +53,17 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.themeSource = 'dark'
 
     const settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'))
+    fileMetadata = new FileMetadataStore(join(app.getPath('userData'), 'file-metadata.json'))
+    const resourcesDir = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources')
+    const thumbnails = new ThumbnailService(locateMpv(resourcesDir), () => app.getPath('temp'))
     const upscaleModels = new UpscaleModelStore(join(app.getPath('userData'), 'models', 'upscale'))
     upscale = new UpscaleService(upscaleModels)
     const imageGen = new ImageGenService(settings)
     updates = new UpdateService()
     manager = new InstanceManager(settings)
     disposeSettings = registerSettingsBridge(settings)
+    disposeFileMetadata = registerFileMetadataBridge(fileMetadata)
+    disposeThumbnails = registerThumbnailBridge(thumbnails)
     disposeUpscale = registerUpscaleBridge(upscale)
     disposeImageGen = registerImageGenBridge(imageGen)
     disposeUpdate = registerUpdateBridge(updates)
@@ -72,8 +85,11 @@ app.on('before-quit', () => {
   manager?.disposeAll()
   upscale?.dispose()
   updates?.dispose()
+  fileMetadata?.flush()
   disposeBridge()
   disposeSettings()
+  disposeFileMetadata()
+  disposeThumbnails()
   disposeUpscale()
   disposeImageGen()
   disposeUpdate()

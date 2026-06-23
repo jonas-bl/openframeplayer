@@ -63,6 +63,32 @@ export function mapActionToOperations(
     case 'setSpeed':
       return [setProp(MpvProperty.speed, clamp(action.value, SPEED_MIN, SPEED_MAX))]
 
+    // --- Tracks: select a stream by id, or disable it with `no`. ---
+    case 'setTrack': {
+      const prop =
+        action.track === 'sub'
+          ? MpvProperty.sid
+          : action.track === 'audio'
+            ? MpvProperty.aid
+            : MpvProperty.vid
+      return [setProp(prop, action.id === null ? 'no' : action.id)]
+    }
+    case 'loadSubtitleFile':
+      return [run('sub-add', action.path, 'select')]
+
+    // --- Playlist / queue ---
+    case 'playlistAppend':
+      // `append-play` queues the file and starts it if nothing is playing yet.
+      return [run('loadfile', action.path, 'append-play')]
+    case 'playlistPlayIndex':
+      return [setProp(MpvProperty.playlistPos, action.index)]
+    case 'playlistRemove':
+      return [run('playlist-remove', action.index)]
+    case 'playlistNext':
+      return [run('playlist-next', 'weak')]
+    case 'playlistPrev':
+      return [run('playlist-prev', 'weak')]
+
     // --- Looping ---
     // `mode` drives all three properties at once so an explicit, self-contained
     // mpv state results regardless of the previous mode. `'no'` clears an
@@ -105,6 +131,9 @@ export function mapActionToOperations(
       return [setProp(MpvProperty.contrast, clamp(action.value, -100, 100))]
     case 'toggleFlipH':
       return [run('vf', 'toggle', 'hflip')]
+    case 'setRotation':
+      // mpv `video-rotate` takes 0..359 (clockwise); normalise any multiple/sign.
+      return [setProp(MpvProperty.videoRotate, ((action.degrees % 360) + 360) % 360)]
 
     // --- Capture (Feature 3): lossless PNG from decoded video pixels ---
     case 'screenshot':
@@ -118,6 +147,7 @@ export function mapActionToOperations(
         setProp(MpvProperty.videoZoom, 0),
         setProp(MpvProperty.videoPanX, 0),
         setProp(MpvProperty.videoPanY, 0),
+        setProp(MpvProperty.videoRotate, 0),
         run('vf', 'remove', 'hflip')
       ]
 

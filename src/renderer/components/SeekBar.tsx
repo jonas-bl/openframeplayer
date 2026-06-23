@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import type { ThumbnailSheet } from '@shared/ipc'
+import { formatTimecode } from '../lib/format'
 
 interface SeekBarProps {
   position: number
@@ -13,6 +15,10 @@ interface SeekBarProps {
    * reverse-play.
    */
   reverseWindow?: { start: number; end: number } | null
+  /** Marker times (seconds) to draw as ticks on the track. */
+  markers?: number[]
+  /** Sprite sheet for the hover preview, or null when unavailable. */
+  thumbnails?: ThumbnailSheet | null
   /**
    * Seek to `seconds`. `precise` is false during a live drag (fast keyframe
    * seek, instant frame) and true on release (frame-accurate landing).
@@ -32,10 +38,13 @@ export function SeekBar({
   loopStart = null,
   loopEnd = null,
   reverseWindow = null,
+  markers = [],
+  thumbnails = null,
   onSeek
 }: SeekBarProps): JSX.Element {
   const trackRef = useRef<HTMLDivElement>(null)
   const [dragFraction, setDragFraction] = useState<number | null>(null)
+  const [hoverFraction, setHoverFraction] = useState<number | null>(null)
 
   // Animation-frame throttle for live seeks during a drag.
   const seekRaf = useRef<number | null>(null)
@@ -85,6 +94,7 @@ export function SeekBar({
   }
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (hasDuration) setHoverFraction(fractionFromEvent(event))
     if (dragFraction === null) return
     const f = fractionFromEvent(event)
     setDragFraction(f)
@@ -105,6 +115,7 @@ export function SeekBar({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerLeave={() => setHoverFraction(null)}
       className="group relative flex h-4 cursor-pointer items-center"
       role="slider"
       aria-label="Seek"
@@ -135,10 +146,59 @@ export function SeekBar({
       {loopA !== null && <LoopTick fraction={loopA} />}
       {loopB !== null && <LoopTick fraction={loopB} />}
 
+      {/* Timeline markers (bookmarks). */}
+      {hasDuration &&
+        markers.map((time, i) => (
+          <div
+            key={`${time}:${i}`}
+            className="pointer-events-none absolute h-3 w-0.5 -translate-x-1/2 rounded-full bg-emerald-400"
+            style={{ left: `${clamp01(time / duration) * 100}%` }}
+          />
+        ))}
+
       <div
         className="absolute h-3 w-3 -translate-x-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover:opacity-100"
         style={{ left: `${fraction * 100}%`, opacity: dragFraction !== null ? 1 : undefined }}
       />
+
+      {thumbnails && hoverFraction !== null && hasDuration && (
+        <ThumbPreview sheet={thumbnails} fraction={hoverFraction} seconds={hoverFraction * duration} />
+      )}
+    </div>
+  )
+}
+
+/** Floating frame preview shown above the track at the hovered position. */
+function ThumbPreview({
+  sheet,
+  fraction,
+  seconds
+}: {
+  sheet: ThumbnailSheet
+  fraction: number
+  seconds: number
+}): JSX.Element {
+  const cell = Math.min(sheet.count - 1, Math.max(0, Math.round(fraction * (sheet.count - 1))))
+  const col = cell % sheet.cols
+  const row = Math.floor(cell / sheet.cols)
+  return (
+    <div
+      className="pointer-events-none absolute bottom-full z-40 mb-2 -translate-x-1/2 rounded-md border border-surface-500 bg-surface-900 p-1 shadow-2xl"
+      style={{ left: `${fraction * 100}%` }}
+    >
+      <div
+        style={{
+          width: sheet.cellWidth,
+          height: sheet.cellHeight,
+          backgroundImage: `url(${sheet.dataUrl})`,
+          backgroundSize: `${sheet.cols * sheet.cellWidth}px ${sheet.rows * sheet.cellHeight}px`,
+          backgroundPosition: `-${col * sheet.cellWidth}px -${row * sheet.cellHeight}px`
+        }}
+        className="rounded-sm"
+      />
+      <div className="mt-0.5 text-center font-mono text-[10px] tabular-nums text-zinc-300">
+        {formatTimecode(seconds)}
+      </div>
     </div>
   )
 }

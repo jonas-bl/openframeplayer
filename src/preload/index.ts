@@ -10,8 +10,13 @@ import {
   type VideoBounds,
   type WindowControlsApi,
   type WindowEdge,
-  type ScreenPoint
+  type ScreenPoint,
+  type ResumePayload,
+  type ThumbnailSheet,
+  type ExportRequest,
+  type ExportStatus
 } from '@shared/ipc'
+import type { FileMetadata, Marker, RecentFile } from '@shared/fileMetadata'
 import type { PlayerAction } from '@shared/player-actions'
 import type { PlayerState } from '@shared/player-state'
 import type { AppSettings } from '@shared/settings'
@@ -89,6 +94,16 @@ const api: PlayerApi = {
     return () => ipcRenderer.removeListener(IpcChannels.popoutChanged, listener)
   },
 
+  setPanelPopout(open: boolean): void {
+    ipcRenderer.send(IpcChannels.setPanelPopout, open)
+  },
+
+  onPanelPopoutChanged(callback: (open: boolean) => void): () => void {
+    const listener = (_event: unknown, open: boolean): void => callback(open)
+    ipcRenderer.on(IpcChannels.panelPopoutChanged, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.panelPopoutChanged, listener)
+  },
+
   setVideoBounds(bounds: VideoBounds): void {
     ipcRenderer.send(IpcChannels.setVideoBounds, bounds)
   },
@@ -163,6 +178,46 @@ const api: PlayerApi = {
 
   getAppVersion(): Promise<string> {
     return ipcRenderer.invoke(IpcChannels.appVersion)
+  },
+
+  getFileMetadata(path: string): Promise<FileMetadata | null> {
+    return ipcRenderer.invoke(IpcChannels.getFileMetadata, path)
+  },
+
+  saveResume(payload: ResumePayload): void {
+    ipcRenderer.send(IpcChannels.saveResume, payload)
+  },
+
+  saveBookmarks(path: string, bookmarks: Marker[]): void {
+    ipcRenderer.send(IpcChannels.saveBookmarks, path, bookmarks)
+  },
+
+  getRecentFiles(): Promise<RecentFile[]> {
+    return ipcRenderer.invoke(IpcChannels.getRecentFiles)
+  },
+
+  getThumbnailSheet(path: string, duration: number): Promise<ThumbnailSheet | null> {
+    return ipcRenderer.invoke(IpcChannels.getThumbnailSheet, path, duration)
+  },
+
+  exportRange(request: ExportRequest): Promise<string | null> {
+    return ipcRenderer.invoke(IpcChannels.exportRange, request)
+  },
+
+  onExportStatusChanged(callback: (status: ExportStatus) => void): () => void {
+    const listener = (_event: unknown, status: ExportStatus): void => callback(status)
+    ipcRenderer.on(IpcChannels.exportStatusChanged, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.exportStatusChanged, listener)
+  },
+
+  setComparisonLink(linked: boolean): void {
+    ipcRenderer.send(IpcChannels.setComparisonLink, linked)
+  },
+
+  onComparisonLinkChanged(callback: (linked: boolean) => void): () => void {
+    const listener = (_event: unknown, linked: boolean): void => callback(linked)
+    ipcRenderer.on(IpcChannels.comparisonLinkChanged, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.comparisonLinkChanged, listener)
   }
 }
 
@@ -185,6 +240,13 @@ const windowControls: WindowControlsApi = {
     const listener = (_e: unknown, fullscreen: boolean): void => callback(fullscreen)
     ipcRenderer.on(WindowChannels.fullscreenChanged, listener)
     return () => ipcRenderer.removeListener(WindowChannels.fullscreenChanged, listener)
+  },
+  toggleAlwaysOnTop: () => ipcRenderer.send(WindowChannels.toggleAlwaysOnTop),
+  isAlwaysOnTop: () => ipcRenderer.invoke(WindowChannels.isAlwaysOnTop),
+  onAlwaysOnTopChanged(callback: (onTop: boolean) => void): () => void {
+    const listener = (_e: unknown, onTop: boolean): void => callback(onTop)
+    ipcRenderer.on(WindowChannels.alwaysOnTopChanged, listener)
+    return () => ipcRenderer.removeListener(WindowChannels.alwaysOnTopChanged, listener)
   },
   moveStart: (point: ScreenPoint) => ipcRenderer.send(WindowChannels.moveStart, point),
   move: (point: ScreenPoint) => ipcRenderer.send(WindowChannels.move, point),

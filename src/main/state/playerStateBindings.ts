@@ -1,4 +1,4 @@
-import type { PlayerState } from '@shared/player-state'
+import type { PlayerState, TrackInfo, PlaylistEntry } from '@shared/player-state'
 import { MpvProperty } from '../mpv/mpvProperties'
 
 /**
@@ -21,7 +21,14 @@ export const OBSERVED_PROPERTIES: string[] = [
   MpvProperty.contrast,
   MpvProperty.videoZoom,
   MpvProperty.videoPanX,
-  MpvProperty.videoPanY
+  MpvProperty.videoPanY,
+  MpvProperty.videoRotate,
+  MpvProperty.trackList,
+  MpvProperty.sid,
+  MpvProperty.aid,
+  MpvProperty.vid,
+  MpvProperty.playlist,
+  MpvProperty.playlistPos
 ]
 
 /** Coerces an mpv value to a finite number, falling back to a default. */
@@ -32,6 +39,53 @@ function num(value: unknown, fallback: number): number {
 /** Coerces an mpv value to a boolean. */
 function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
+}
+
+/** A selected track id is a number, or `false`/`'no'`/absent when disabled. */
+function trackId(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function str(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+/** Coerces an mpv `track-list` value into our typed, UI-facing shape. */
+function coerceTracks(value: unknown): TrackInfo[] {
+  if (!Array.isArray(value)) return []
+  const out: TrackInfo[] = []
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const t = raw as Record<string, unknown>
+    const type = t.type
+    if ((type !== 'audio' && type !== 'video' && type !== 'sub') || typeof t.id !== 'number') continue
+    out.push({
+      id: t.id,
+      type,
+      title: str(t.title),
+      lang: str(t.lang),
+      selected: bool(t.selected, false),
+      external: bool(t.external, false)
+    })
+  }
+  return out
+}
+
+/** Coerces an mpv `playlist` value into our typed, UI-facing shape. */
+function coercePlaylist(value: unknown): PlaylistEntry[] {
+  if (!Array.isArray(value)) return []
+  const out: PlaylistEntry[] = []
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const e = raw as Record<string, unknown>
+    if (typeof e.filename !== 'string') continue
+    out.push({
+      filename: e.filename,
+      title: str(e.title),
+      current: bool(e.current, false) || bool(e.playing, false)
+    })
+  }
+  return out
 }
 
 /**
@@ -83,6 +137,21 @@ export function applyPropertyChange(
       return patchVideo(state, { panX: num(value, video.panX) })
     case MpvProperty.videoPanY:
       return patchVideo(state, { panY: num(value, video.panY) })
+    case MpvProperty.videoRotate:
+      return patchVideo(state, { rotate: num(value, video.rotate) })
+
+    case MpvProperty.trackList:
+      return patchPlayback(state, { tracks: coerceTracks(value) })
+    case MpvProperty.sid:
+      return patchPlayback(state, { sid: trackId(value) })
+    case MpvProperty.aid:
+      return patchPlayback(state, { aid: trackId(value) })
+    case MpvProperty.vid:
+      return patchPlayback(state, { vid: trackId(value) })
+    case MpvProperty.playlist:
+      return patchPlayback(state, { playlist: coercePlaylist(value) })
+    case MpvProperty.playlistPos:
+      return patchPlayback(state, { playlistPos: num(value, playback.playlistPos) })
 
     default:
       return state

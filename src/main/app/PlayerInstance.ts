@@ -1,16 +1,17 @@
 import { join, basename } from 'node:path'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { app, dialog, BrowserWindow, type WebContents } from 'electron'
+import { app, dialog, screen, BrowserWindow, type WebContents } from 'electron'
 import {
   IpcChannels,
   WindowChannels,
   type EditorPayload,
+  type ExportRequest,
   type SaveScreenshotOptions,
   type ScreenPoint,
   type VideoBounds,
   type WindowEdge
 } from '@shared/ipc'
-import type { PlayerAction } from '@shared/player-actions'
+import { isMirroredAction, type PlayerAction } from '@shared/player-actions'
 import type { PlayerState } from '@shared/player-state'
 import { DEFAULT_ANNOTATION_CONTROL, type AnnotationControl } from '@shared/annotation'
 import type { SettingsStore } from '../settings/SettingsStore'
@@ -27,6 +28,8 @@ import { captureVideoRegion } from '../capture/screenCapture'
 import type { CapturedFrame } from '@shared/ipc'
 import { buildScreenshotPath } from '../capture/screenshotPath'
 import { createScreenshotEditor } from '../window/createScreenshotEditor'
+import { ExportService } from '../export/ExportService'
+import { buildExportName } from '../export/exportArgs'
 
 const MIN_SIZE = { width: 840, height: 520 }
 
@@ -39,6 +42,11 @@ interface GestureAnchor {
   pointer: ScreenPoint
   bounds: Rect
   edge?: WindowEdge
+}
+
+/** True for a finite, strictly-positive number (a usable pixel dimension). */
+function isPositive(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
 /** Resources live at <repo>/resources in dev and process.resourcesPath when packaged. */
@@ -59,11 +67,16 @@ export class PlayerInstance {
   private readonly service: PlayerService
   private readonly engine: MpvEngine | null
   private readonly embedder: MpvEmbedder
+  private readonly exporter: ExportService
   private anchor: GestureAnchor | null = null
   /** Open screenshot-editor windows + their captured image, keyed by webContents id. */
   private readonly editors = new Map<number, { window: BrowserWindow; payload: EditorPayload }>()
   /** Annotation tool state shared across this group's renderers (overlay + pop-out). */
   private annotationControl: AnnotationControl = { ...DEFAULT_ANNOTATION_CONTROL }
+  /** Whether this window's transport mirrors to (and from) linked comparison peers. */
+  private comparisonLinked = false
+  /** Fans a mirrored transport action out to linked peers (set by the manager). */
+  private mirrorToPeers: ((action: PlayerAction) => void) | null = null
 
   private constructor(
     private readonly settings: SettingsStore,
@@ -74,8 +87,13 @@ export class PlayerInstance {
     this.store = new PlayerStateStore()
     this.engine = binaryPath ? new MpvEngine({ binaryPath }) : null
     this.windows = new PlayerWindows(
-      (open) => this.emit(IpcChannels.popoutChanged, open),
-      (popout) => this.bindWindowControlEvents(popout, popout.webContents)
+      (kind, open) =>
+        this.emit(
+          kind === 'controls' ? IpcChannels.popoutChanged : IpcChannels.panelPopoutChanged,
+          open
+        ),
+      (popout) => this.bindWindowControlEvents(popout, popout.webContents),
+      Boolean(initialFile)
     )
     this.embedder = new MpvEmbedder(this.windows.video)
     this.service = new PlayerService({
@@ -86,6 +104,7 @@ export class PlayerInstance {
       mpvBinaryPath: binaryPath,
       tempDir: () => app.getPath('temp')
     })
+    this.exporter = new ExportService({ mpvBinaryPath: binaryPath })
 
     this.wireWindowEvents()
     this.store.subscribe((state) => this.emit(IpcChannels.stateChanged, state))
@@ -145,7 +164,34 @@ export class PlayerInstance {
   }
 
   dispatch(action: PlayerAction): Promise<void> {
+    // When transport-linked, fan mirrorable transport actions out to peers.
+    // `load` and view/image actions are never mirrored (see isMirroredAction).
+    if (this.comparisonLinked && this.mirrorToPeers && isMirroredAction(action)) {
+      this.mirrorToPeers(action)
+    }
     return this.service.dispatch(action)
+  }
+
+  /** Applies a transport action received from a linked peer (no re-mirror). */
+  applyMirrored(action: PlayerAction): void {
+    void this.service.dispatch(action)
+  }
+
+  /** Manager hook: how this instance reaches its linked peers. */
+  setMirror(fn: (action: PlayerAction) => void): void {
+    this.mirrorToPeers = fn
+  }
+
+  /** Whether this window is currently transport-linked. */
+  get isComparisonLinked(): boolean {
+    return this.comparisonLinked
+  }
+
+  /** Sets this window's transport-link state and notifies its renderers. */
+  setComparisonLink(linked: boolean): void {
+    if (this.comparisonLinked === linked) return
+    this.comparisonLinked = linked
+    this.emit(IpcChannels.comparisonLinkChanged, linked)
   }
 
   loadFile(path: string): void {
@@ -168,6 +214,53 @@ export class PlayerInstance {
   /** Grabs a downscaled frame of this instance's video region for tracking. */
   captureFrame(maxWidth?: number): CapturedFrame | null {
     return captureVideoRegion(getWindowId(this.video), maxWidth)
+  }
+
+  /**
+   * After a file loads, sizes the window to the video: if the video fits the
+   * current display's work area it's shown 1:1 (window content == video size,
+   * re-centred); otherwise the window is maximised so the video fills the
+   * screen. Skipped when the user has already maximised or gone fullscreen, so
+   * their explicit choice is respected across playlist advances.
+   */
+  private async fitWindowToVideo(engine: MpvEngine): Promise<void> {
+    const win = this.video
+    if (win.isDestroyed() || win.isMaximized() || win.isFullScreen()) return
+
+    let dw: number | null
+    let dh: number | null
+    try {
+      // Display dimensions account for aspect-ratio correction and rotation;
+      // fall back to the raw decoded size if mpv hasn't computed them yet.
+      dw = await engine.controller.getProperty<number | null>('dwidth')
+      dh = await engine.controller.getProperty<number | null>('dheight')
+      if (!isPositive(dw) || !isPositive(dh)) {
+        dw = await engine.controller.getProperty<number | null>('width')
+        dh = await engine.controller.getProperty<number | null>('height')
+      }
+    } catch {
+      return
+    }
+    if (win.isDestroyed() || win.isMaximized() || win.isFullScreen()) return
+    if (!isPositive(dw) || !isPositive(dh)) return
+
+    const display = screen.getDisplayMatching(win.getBounds())
+    const { workArea, scaleFactor } = display
+    // mpv reports physical pixels; Electron sizes windows in DIPs.
+    const wantW = dw / scaleFactor
+    const wantH = dh / scaleFactor
+
+    // Leave headroom for the native title bar and taskbar; if the video is
+    // bigger than that, maximise instead of cramming it on screen.
+    if (wantW > workArea.width * 0.98 || wantH > workArea.height * 0.92) {
+      win.maximize()
+      return
+    }
+
+    const width = Math.max(MIN_SIZE.width, Math.round(wantW))
+    const height = Math.max(MIN_SIZE.height, Math.round(wantH))
+    win.setContentSize(width, height)
+    win.center()
   }
 
   // --- Screenshot editor ---
@@ -244,8 +337,79 @@ export class PlayerInstance {
     if (editor && !editor.window.isDestroyed()) editor.window.close()
   }
 
+  // --- Export (clip / GIF / PNG sequence) ---
+
+  /**
+   * Exports `[start, end]` of the current file. Prompts for a destination (a
+   * file for clip/GIF, a folder for a PNG sequence), runs mpv headless, and
+   * broadcasts running/done/error so any window can show the export toast.
+   * Resolves to the output path/dir, or null when cancelled or on failure.
+   */
+  async exportRange(req: ExportRequest): Promise<string | null> {
+    const { playback } = this.store.getState()
+    const input = playback.filePath
+    if (!input || !(req.endSeconds > req.startSeconds)) return null
+
+    const fps = playback.fps
+    const suggested = buildExportName(
+      input,
+      req.format,
+      fps > 0 ? req.startSeconds * fps : 0,
+      fps > 0 ? req.endSeconds * fps : 0
+    )
+
+    let output: string
+    if (req.format === 'pngseq') {
+      const result = await dialog.showOpenDialog(this.windows.overlay, {
+        title: 'Choose a folder for the PNG frame sequence',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      const dir = result.canceled ? null : (result.filePaths[0] ?? null)
+      if (!dir) return null
+      // Contain the frames in their own subfolder so the range is self-describing.
+      output = join(dir, suggested)
+      mkdirSync(output, { recursive: true })
+    } else {
+      const ext = req.format === 'gif' ? 'gif' : 'mp4'
+      const result = await dialog.showSaveDialog(this.windows.overlay, {
+        title: 'Export clip',
+        defaultPath: join(this.resolveScreenshotDir(), suggested),
+        filters: [{ name: `${ext.toUpperCase()} file`, extensions: [ext] }]
+      })
+      if (result.canceled || !result.filePath) return null
+      output = result.filePath
+    }
+
+    this.emit(IpcChannels.exportStatusChanged, { phase: 'running', format: req.format })
+    try {
+      await this.exporter.run({
+        inputPath: input,
+        output,
+        startSeconds: req.startSeconds,
+        endSeconds: req.endSeconds,
+        format: req.format
+      })
+      this.emit(IpcChannels.exportStatusChanged, {
+        phase: 'done',
+        format: req.format,
+        outputPath: output
+      })
+      return output
+    } catch (err) {
+      this.emit(IpcChannels.exportStatusChanged, {
+        phase: 'error',
+        message: err instanceof Error ? err.message : String(err)
+      })
+      return null
+    }
+  }
+
   setControlsPopout(open: boolean): void {
-    this.windows.setControlsPopout(open)
+    this.windows.setPopout('controls', open)
+  }
+
+  setPanelPopout(open: boolean): void {
+    this.windows.setPopout('panels', open)
   }
 
   // --- Annotation controls (shared across the group) ---
@@ -305,6 +469,24 @@ export class PlayerInstance {
     return this.controlTargetFor(sender)?.isFullScreen() ?? false
   }
 
+  /**
+   * Toggles always-on-top (picture-in-picture) for the window behind `sender`.
+   * The overlay is a child of the video window, so pinning the video keeps the
+   * whole group above other apps. There's no OS event for this, so the new state
+   * is sent straight back to the renderer that drew the control.
+   */
+  toggleAlwaysOnTop(sender: WebContents): void {
+    const window = this.controlTargetFor(sender)
+    if (!window) return
+    const next = !window.isAlwaysOnTop()
+    window.setAlwaysOnTop(next)
+    if (!sender.isDestroyed()) sender.send(WindowChannels.alwaysOnTopChanged, next)
+  }
+
+  isAlwaysOnTop(sender: WebContents): boolean {
+    return this.controlTargetFor(sender)?.isAlwaysOnTop() ?? false
+  }
+
   moveStart(point: ScreenPoint): void {
     this.anchor = { pointer: point, bounds: this.video.getBounds() }
   }
@@ -341,6 +523,7 @@ export class PlayerInstance {
       if (!window.isDestroyed()) window.destroy()
     }
     this.editors.clear()
+    this.exporter.dispose()
     this.service.dispose()
     this.embedder.dispose()
     this.engine?.dispose()
@@ -387,7 +570,10 @@ export class PlayerInstance {
         store.update((state) => applyPropertyChange(state, remapped.name, remapped.value))
       })
       engine.controller.on('event', (e) => {
-        if (e.event === 'file-loaded') embedder.raiseNow()
+        if (e.event === 'file-loaded') {
+          embedder.raiseNow()
+          void this.fitWindowToVideo(engine)
+        }
       })
       void engine.controller.observeProperties(OBSERVED_PROPERTIES)
       store.setEngine({ ready: true, error: null })

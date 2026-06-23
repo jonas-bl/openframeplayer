@@ -18,6 +18,9 @@ export const APP_COMMANDS = [
   'setLoopEnd',
   'clearLoop',
   'toggleLoopReverse',
+  'addMarker',
+  'nextMarker',
+  'prevMarker',
   'zoomIn',
   'zoomOut',
   'screenshot',
@@ -25,6 +28,7 @@ export const APP_COMMANDS = [
   'flipHorizontal',
   'resetImage',
   'resetView',
+  'toggleAlwaysOnTop',
   'toggleDrawMode',
   'toggleAutofocus',
   'toggleKeepCentered',
@@ -33,7 +37,6 @@ export const APP_COMMANDS = [
   'openFile',
   'newWindow',
   'toggleFullscreen',
-  'toggleImagePanel',
   'popoutControls',
   'openSettings'
 ] as const
@@ -65,11 +68,18 @@ export const COMMAND_META: Record<AppCommand, CommandMeta> = {
     label: 'Reverse loop playback',
     group: 'Playback'
   },
+  addMarker: { command: 'addMarker', label: 'Add marker at playhead', group: 'Playback' },
+  nextMarker: { command: 'nextMarker', label: 'Jump to next marker', group: 'Playback' },
+  prevMarker: { command: 'prevMarker', label: 'Jump to previous marker', group: 'Playback' },
   zoomIn: { command: 'zoomIn', label: 'Zoom in', group: 'View' },
   zoomOut: { command: 'zoomOut', label: 'Zoom out', group: 'View' },
   resetView: { command: 'resetView', label: 'Reset zoom & pan', group: 'View' },
   toggleFullscreen: { command: 'toggleFullscreen', label: 'Toggle fullscreen', group: 'View' },
-  toggleImagePanel: { command: 'toggleImagePanel', label: 'Show / hide image panel', group: 'View' },
+  toggleAlwaysOnTop: {
+    command: 'toggleAlwaysOnTop',
+    label: 'Always on top (picture-in-picture)',
+    group: 'View'
+  },
   screenshot: { command: 'screenshot', label: 'Screenshot (save directly)', group: 'Image' },
   screenshotEditor: { command: 'screenshotEditor', label: 'Screenshot (open editor)', group: 'Image' },
   flipHorizontal: { command: 'flipHorizontal', label: 'Flip horizontal', group: 'Image' },
@@ -107,16 +117,19 @@ export const DEFAULT_KEYBINDINGS: Record<AppCommand, string[]> = {
   setLoopEnd: [']'],
   clearLoop: ['\\'],
   toggleLoopReverse: ['Alt+l'],
+  addMarker: ['m'],
+  nextMarker: ['Alt+ArrowRight'],
+  prevMarker: ['Alt+ArrowLeft'],
   zoomIn: ['WheelUp', '+'],
   zoomOut: ['WheelDown', '-'],
   resetView: ['d'],
+  toggleAlwaysOnTop: ['t'],
   toggleDrawMode: ['b'],
   toggleAutofocus: ['a'],
   toggleKeepCentered: ['c'],
   undoAnnotation: ['Ctrl+z'],
   clearAnnotations: ['Ctrl+Backspace'],
   toggleFullscreen: ['F11'],
-  toggleImagePanel: ['i'],
   screenshot: ['Ctrl+s'],
   screenshotEditor: ['s'],
   flipHorizontal: ['f'],
@@ -197,4 +210,36 @@ export function formatBinding(binding: string): string {
   const { modifier, key } = parseBinding(binding)
   const keyLabel = formatKey(key)
   return modifier ? `${modifier} + ${keyLabel}` : keyLabel
+}
+
+/**
+ * Canonical form of a binding for conflict/equality checks. Mirrors what the
+ * matcher compares: the modifier plus the {@link normalizeKey}-folded key, so
+ * `=`/`+` and `S`/`s` are recognised as the same chord.
+ */
+export function canonicalBinding(binding: string): string {
+  const { modifier, key } = parseBinding(binding)
+  return makeBinding(modifier, normalizeKey(key))
+}
+
+/**
+ * Commands already bound to `binding`, excluding `exclude` (the command being
+ * edited). Two bindings conflict when they resolve to the same chord — the same
+ * thing the keyboard matcher would fire — so the result is exactly the set of
+ * other commands that would also respond to that key.
+ */
+export function findBindingConflicts(
+  keybindings: Record<AppCommand, string[]>,
+  binding: string,
+  exclude?: AppCommand
+): AppCommand[] {
+  const target = canonicalBinding(binding)
+  const hits: AppCommand[] = []
+  for (const command of APP_COMMANDS) {
+    if (command === exclude) continue
+    if ((keybindings[command] ?? []).some((b) => canonicalBinding(b) === target)) {
+      hits.push(command)
+    }
+  }
+  return hits
 }

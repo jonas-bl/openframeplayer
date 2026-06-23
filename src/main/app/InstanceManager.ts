@@ -1,5 +1,6 @@
 import { app, type WebContents } from 'electron'
 import type { SettingsStore } from '../settings/SettingsStore'
+import type { PlayerAction } from '@shared/player-actions'
 import { PlayerInstance } from './PlayerInstance'
 
 /**
@@ -15,6 +16,8 @@ export class InstanceManager {
   async createInstance(initialFile?: string | null): Promise<PlayerInstance> {
     const instance = await PlayerInstance.create(this.settings, initialFile)
     this.instances.add(instance)
+    // Linked windows mirror transport to one another (comparison feature).
+    instance.setMirror((action) => this.fanOutMirrored(instance, action))
 
     instance.windows.video.on('closed', () => {
       instance.dispose()
@@ -23,6 +26,21 @@ export class InstanceManager {
     })
 
     return instance
+  }
+
+  /** Sets a window's transport-link state (comparison). */
+  setComparisonLink(instance: PlayerInstance, linked: boolean): void {
+    instance.setComparisonLink(linked)
+  }
+
+  /**
+   * Forwards a mirrored transport action from `source` to every *other* linked
+   * window. `applyMirrored` dispatches without re-mirroring, so there's no echo.
+   */
+  private fanOutMirrored(source: PlayerInstance, action: PlayerAction): void {
+    for (const instance of this.instances) {
+      if (instance !== source && instance.isComparisonLinked) instance.applyMirrored(action)
+    }
   }
 
   /** Resolves the instance that owns the renderer behind an IPC message. */
