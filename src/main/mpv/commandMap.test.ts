@@ -51,6 +51,39 @@ describe('mapActionToOperations', () => {
     ])
   })
 
+  it('selects a track by id and disables it with `no`', () => {
+    expect(map({ type: 'setTrack', track: 'sub', id: 2 })).toEqual([
+      { kind: 'set', property: 'sid', value: 2 }
+    ])
+    expect(map({ type: 'setTrack', track: 'sub', id: null })).toEqual([
+      { kind: 'set', property: 'sid', value: 'no' }
+    ])
+    expect(map({ type: 'setTrack', track: 'audio', id: 1 })).toEqual([
+      { kind: 'set', property: 'aid', value: 1 }
+    ])
+  })
+
+  it('adds an external subtitle and maps playlist commands', () => {
+    expect(map({ type: 'loadSubtitleFile', path: 'C:\\s.srt' })).toEqual([
+      { kind: 'command', args: ['sub-add', 'C:\\s.srt', 'select'] }
+    ])
+    expect(map({ type: 'playlistAppend', path: 'C:\\b.mp4' })).toEqual([
+      { kind: 'command', args: ['loadfile', 'C:\\b.mp4', 'append-play'] }
+    ])
+    expect(map({ type: 'playlistPlayIndex', index: 3 })).toEqual([
+      { kind: 'set', property: 'playlist-pos', value: 3 }
+    ])
+    expect(map({ type: 'playlistRemove', index: 1 })).toEqual([
+      { kind: 'command', args: ['playlist-remove', 1] }
+    ])
+    expect(map({ type: 'playlistNext' })).toEqual([
+      { kind: 'command', args: ['playlist-next', 'weak'] }
+    ])
+    expect(map({ type: 'playlistPrev' })).toEqual([
+      { kind: 'command', args: ['playlist-prev', 'weak'] }
+    ])
+  })
+
   it('clamps playback speed into the allowed range', () => {
     expect(map({ type: 'setSpeed', value: 2 })).toEqual([
       { kind: 'set', property: 'speed', value: 2 }
@@ -131,6 +164,18 @@ describe('mapActionToOperations', () => {
     ])
   })
 
+  it('sets display rotation, normalising degrees into 0..359', () => {
+    expect(map({ type: 'setRotation', degrees: 90 })).toEqual([
+      { kind: 'set', property: 'video-rotate', value: 90 }
+    ])
+    expect(map({ type: 'setRotation', degrees: 360 })).toEqual([
+      { kind: 'set', property: 'video-rotate', value: 0 }
+    ])
+    expect(map({ type: 'setRotation', degrees: -90 })).toEqual([
+      { kind: 'set', property: 'video-rotate', value: 270 }
+    ])
+  })
+
   it('screenshots losslessly from decoded video pixels into the resolved path', () => {
     expect(map({ type: 'screenshot' })).toEqual([
       { kind: 'command', args: ['screenshot-to-file', 'C:\\shots\\frame.png', 'video'] }
@@ -152,6 +197,7 @@ describe('mapActionToOperations', () => {
       { kind: 'set', property: 'video-zoom', value: 0 },
       { kind: 'set', property: 'video-pan-x', value: 0 },
       { kind: 'set', property: 'video-pan-y', value: 0 },
+      { kind: 'set', property: 'video-rotate', value: 0 },
       { kind: 'command', args: ['vf', 'remove', 'hflip'] }
     ])
   })

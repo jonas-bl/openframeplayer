@@ -11,6 +11,29 @@
  * place where conversion bugs can hide.
  */
 
+/**
+ * One selectable stream in the loaded file (mirrors an mpv `track-list` entry).
+ * `id` is the per-type id mpv uses for `sid`/`aid`/`vid`.
+ */
+export interface TrackInfo {
+  id: number
+  type: 'audio' | 'video' | 'sub'
+  title: string | null
+  lang: string | null
+  selected: boolean
+  external: boolean
+}
+
+/** One entry in the mpv playlist (mirrors a `playlist` entry). */
+export interface PlaylistEntry {
+  /** Full path / URL of the entry. */
+  filename: string
+  /** Display title if the file carries one, else null (UI falls back to the name). */
+  title: string | null
+  /** True for the entry currently loaded. */
+  current: boolean
+}
+
 /** Image-correction / geometry state — everything under "Bildkorrektur". */
 export interface VideoState {
   /** mpv `brightness`, range -100..100, neutral 0. */
@@ -25,6 +48,8 @@ export interface VideoState {
   panY: number
   /** Horizontal flip toggle (mpv `vf toggle hflip`). */
   flipH: boolean
+  /** Display rotation in degrees (mpv `video-rotate`): 0 / 90 / 180 / 270. */
+  rotate: number
 }
 
 /**
@@ -82,6 +107,16 @@ export interface PlaybackState {
    * much footage is ready to reverse-play smoothly.
    */
   reverseWindow: { start: number; end: number } | null
+  /** All selectable streams in the current file (mpv `track-list`). */
+  tracks: TrackInfo[]
+  /** Selected subtitle / audio / video track id, or null when none/disabled. */
+  sid: number | null
+  aid: number | null
+  vid: number | null
+  /** The current playlist (mpv `playlist`); single-entry for a lone file. */
+  playlist: PlaylistEntry[]
+  /** Index of the playing entry in {@link playlist}, or -1 when empty. */
+  playlistPos: number
 }
 
 /** Engine connection / health, surfaced so the UI can show clear errors. */
@@ -104,7 +139,8 @@ export const DEFAULT_VIDEO_STATE: VideoState = {
   zoom: 0,
   panX: 0,
   panY: 0,
-  flipH: false
+  flipH: false,
+  rotate: 0
 }
 
 export const DEFAULT_PLAYBACK_STATE: PlaybackState = {
@@ -123,7 +159,13 @@ export const DEFAULT_PLAYBACK_STATE: PlaybackState = {
   loopEnd: null,
   loopReverse: false,
   smoothLoop: 'off',
-  reverseWindow: null
+  reverseWindow: null,
+  tracks: [],
+  sid: null,
+  aid: null,
+  vid: null,
+  playlist: [],
+  playlistPos: -1
 }
 
 export const DEFAULT_ENGINE_STATE: EngineState = {

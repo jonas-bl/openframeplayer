@@ -16,8 +16,18 @@ import { useAnnotationStore } from './state/annotationStore'
 import { TransportBar } from './components/TransportBar'
 import { ErrorBanner } from './components/ErrorBanner'
 import { ScreenshotToast } from './components/ScreenshotToast'
+import { ExportToast } from './components/ExportToast'
+import { ResumeToast } from './components/ResumeToast'
+import { PanelDock } from './components/PanelDock'
+import { GuidesOverlay } from './components/overlays/GuidesOverlay'
+import { FrameDiffOverlay } from './components/overlays/FrameDiffOverlay'
+import { useResume } from './hooks/useResume'
+import { useFeatureVisible } from './hooks/useMode'
+import { useMarkersStore } from './state/markersStore'
+import { useEffect } from 'react'
 import { UpdateToast } from './components/UpdateToast'
 import { SettingsModal } from './components/SettingsModal'
+import { StartupOverlay } from './components/StartupOverlay'
 
 /**
  * Application root and layout.
@@ -43,8 +53,17 @@ export function App(): JSX.Element {
   const settingsOpen = useUiStore((s) => s.settingsOpen)
   const fullscreen = useUiStore((s) => s.fullscreen)
   const popoutOpen = useUiStore((s) => s.popoutOpen)
+  const panelPopoutOpen = useUiStore((s) => s.panelPopoutOpen)
+  const showScopes = useFeatureVisible('scopes')
+  const showMeasure = useFeatureVisible('measure')
+  const showFrameDiff = useFeatureVisible('frameDiff')
   const drawMode = useAnnotationStore((s) => s.toolMode === 'draw')
   useTracking(hasFile)
+  const resume = useResume()
+
+  // Load this file's persisted markers whenever the file changes.
+  const loadMarkers = useMarkersStore((s) => s.load)
+  useEffect(() => loadMarkers(playback.filePath), [playback.filePath, loadMarkers])
 
   // Chrome auto-hides in fullscreen and stays hidden when idle even while paused
   // — only pointer/keyboard activity reveals it. In windowed mode it's always present.
@@ -53,6 +72,11 @@ export function App(): JSX.Element {
 
   // When controls are popped out, the player window shows none of them.
   const showControls = hasFile && !popoutOpen && chromeVisible
+  // The analysis dock sits to the right of the video whenever any analysis panel
+  // is enabled (all of them in Pro; a custom subset in Custom mode), unless it's
+  // detached into its own window or we're in immersive fullscreen.
+  const showDock =
+    hasFile && (showScopes || showMeasure || showFrameDiff) && !panelPopoutOpen && !fullscreen
 
   const videoRegionRef = useRef<HTMLDivElement>(null)
   useVideoBoundsReporter(videoRegionRef)
@@ -62,21 +86,40 @@ export function App(): JSX.Element {
 
       {engine.error && <ErrorBanner message={engine.error} />}
 
-      {/* The video region: mpv is confined to this rectangle. */}
-      <div
-        ref={videoRegionRef}
-        className={`relative flex-1 overflow-hidden ${chromeVisible ? '' : 'cursor-none'}`}
-      >
-        <VideoStage hasFile={hasFile} />
-        {hasFile && <AnnotationOverlay />}
-        {hasFile && drawMode && <DrawingToolbar />}
-        <ScreenshotToast />
+      {/* Video + optional right-side analysis dock. */}
+      <div className="flex min-h-0 flex-1">
+        {/* The video region: mpv is confined to this rectangle. */}
+        <div
+          ref={videoRegionRef}
+          className={`relative min-w-0 flex-1 overflow-hidden ${chromeVisible ? '' : 'cursor-none'}`}
+        >
+          <VideoStage hasFile={hasFile} />
+          {hasFile && showFrameDiff && <FrameDiffOverlay />}
+          {hasFile && showMeasure && <GuidesOverlay />}
+          {hasFile && <AnnotationOverlay />}
+          {hasFile && drawMode && <DrawingToolbar />}
+          <ScreenshotToast />
+          <ExportToast />
+          {hasFile && resume.promptSeconds !== null && (
+            <ResumeToast
+              seconds={resume.promptSeconds}
+              onResume={resume.onResume}
+              onDismiss={resume.onDismiss}
+            />
+          )}
 
-        {/* In fullscreen the controls overlay the video at the bottom. */}
-        {fullscreen && showControls && (
-          <div className="absolute inset-x-0 bottom-0">
-            <BottomControls />
-          </div>
+          {/* In fullscreen the controls overlay the video at the bottom. */}
+          {fullscreen && showControls && (
+            <div className="absolute inset-x-0 bottom-0">
+              <BottomControls />
+            </div>
+          )}
+        </div>
+
+        {showDock && (
+          <aside className="w-72 shrink-0 border-l border-surface-700">
+            <PanelDock />
+          </aside>
         )}
       </div>
 
@@ -87,6 +130,9 @@ export function App(): JSX.Element {
 
       {/* Self-update notice — shown regardless of whether a file is loaded. */}
       <UpdateToast />
+
+      {/* Animated start screen + first-run feature tour. */}
+      <StartupOverlay />
     </div>
   )
 }

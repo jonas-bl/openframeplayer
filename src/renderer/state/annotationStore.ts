@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { DEFAULT_DRAW_COLORS } from '@shared/settings'
 import type { Vec2 } from '../lib/videoTransform'
 import {
   DEFAULT_ANNOTATION_CONTROL,
@@ -22,8 +23,8 @@ export interface Annotation {
   anchor: Anchor
 }
 
-/** Default colour swatches for the drawing palette. */
-export const DRAW_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ffffff']
+/** Built-in colour swatches (the editor's fixed palette; also the toolbar's seed). */
+export const DRAW_COLORS = DEFAULT_DRAW_COLORS
 
 let nextId = 1
 const makeId = (): string => `a${nextId++}`

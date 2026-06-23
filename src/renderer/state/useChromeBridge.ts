@@ -11,29 +11,39 @@ export function useChromeBridge(): void {
   const applySettings = useSettingsStore((s) => s.applySettings)
   const setFullscreen = useUiStore((s) => s.setFullscreen)
   const setPopoutOpen = useUiStore((s) => s.setPopoutOpen)
-  const setImagePanelVisible = useUiStore((s) => s.setImagePanelVisible)
+  const setPanelPopoutOpen = useUiStore((s) => s.setPanelPopoutOpen)
+  const setComparisonLinked = useUiStore((s) => s.setComparisonLinked)
+  const setAlwaysOnTop = useUiStore((s) => s.setAlwaysOnTop)
 
   useEffect(() => {
     let active = true
 
-    // Apply persisted settings and mirror panel-visibility into the UI store.
-    const sync = (s: Parameters<typeof applySettings>[0]): void => {
-      applySettings(s)
-      setImagePanelVisible(s.imagePanelVisible)
-    }
-
-    void window.api.getSettings().then((s) => active && sync(s))
+    void window.api.getSettings().then((s) => active && applySettings(s))
     void window.windowControls.isFullscreen().then((f) => active && setFullscreen(f))
+    void window.windowControls.isAlwaysOnTop().then((t) => active && setAlwaysOnTop(t))
 
-    const offSettings = window.api.onSettingsChanged(sync)
+    const offSettings = window.api.onSettingsChanged(applySettings)
     const offFullscreen = window.windowControls.onFullscreenChanged(setFullscreen)
     const offPopout = window.api.onPopoutChanged(setPopoutOpen)
+    const offPanelPopout = window.api.onPanelPopoutChanged(setPanelPopoutOpen)
+    const offLink = window.api.onComparisonLinkChanged(setComparisonLinked)
+    const offOnTop = window.windowControls.onAlwaysOnTopChanged(setAlwaysOnTop)
 
     return () => {
       active = false
       offSettings()
       offFullscreen()
       offPopout()
+      offPanelPopout()
+      offLink()
+      offOnTop()
     }
-  }, [applySettings, setFullscreen, setPopoutOpen, setImagePanelVisible])
+  }, [
+    applySettings,
+    setFullscreen,
+    setPopoutOpen,
+    setPanelPopoutOpen,
+    setComparisonLinked,
+    setAlwaysOnTop
+  ])
 }

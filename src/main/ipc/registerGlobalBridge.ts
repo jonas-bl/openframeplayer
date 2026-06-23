@@ -2,6 +2,7 @@ import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import {
   IpcChannels,
   WindowChannels,
+  type ExportRequest,
   type SaveScreenshotOptions,
   type ScreenPoint,
   type VideoBounds,
@@ -47,6 +48,7 @@ export function registerGlobalBridge(manager: InstanceManager): () => void {
   handle(IpcChannels.openFile, (i) => i.openFile())
   handle(IpcChannels.chooseDirectory, (i) => i.chooseDirectory())
   on(IpcChannels.setControlsPopout, (i, _e, open: boolean) => i.setControlsPopout(open))
+  on(IpcChannels.setPanelPopout, (i, _e, open: boolean) => i.setPanelPopout(open))
   handle(IpcChannels.getAnnotationControl, (i) => i.getAnnotationControl())
   on(IpcChannels.setAnnotationControl, (i, _e, patch: Partial<AnnotationControl>) =>
     i.setAnnotationControl(patch)
@@ -62,6 +64,14 @@ export function registerGlobalBridge(manager: InstanceManager): () => void {
   )
   on(IpcChannels.closeEditor, (i, e) => i.closeEditor(e.sender))
 
+  // --- Export ---
+  handle(IpcChannels.exportRange, (i, _e, req: ExportRequest) => i.exportRange(req))
+
+  // --- Comparison (transport link across windows) ---
+  on(IpcChannels.setComparisonLink, (i, _e, linked: boolean) =>
+    manager.setComparisonLink(i, linked)
+  )
+
   // --- Window controls (act on the window that sent the message) ---
   on(WindowChannels.minimize, (i, e) => i.minimize(e.sender))
   on(WindowChannels.toggleMaximize, (i, e) => i.toggleMaximize(e.sender))
@@ -69,6 +79,8 @@ export function registerGlobalBridge(manager: InstanceManager): () => void {
   handle(WindowChannels.isMaximized, (i, e) => i.isMaximized(e.sender))
   on(WindowChannels.toggleFullscreen, (i, e) => i.toggleFullscreen(e.sender))
   handle(WindowChannels.isFullscreen, (i, e) => i.isFullscreen(e.sender))
+  on(WindowChannels.toggleAlwaysOnTop, (i, e) => i.toggleAlwaysOnTop(e.sender))
+  handle(WindowChannels.isAlwaysOnTop, (i, e) => i.isAlwaysOnTop(e.sender))
   on(WindowChannels.moveStart, (i, _e, p: ScreenPoint) => i.moveStart(p))
   on(WindowChannels.move, (i, _e, p: ScreenPoint) => i.move(p))
   on(WindowChannels.resizeStart, (i, _e, edge: WindowEdge, p: ScreenPoint) => i.resizeStart(edge, p))

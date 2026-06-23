@@ -12,8 +12,14 @@ import { getWindowId } from '../embedding/windowHandle'
  * and forwards semantic actions to the main process through the preload bridge.
  *
  * @param parent - the video window this overlay is glued on top of.
+ * @param opts.launchedWithFile - true when this window opened straight into a
+ *   media file (e.g. "Open with FramePlayer"); the renderer reads this to skip
+ *   the animated start screen so playback isn't delayed.
  */
-export function createOverlayWindow(parent: BrowserWindow): BrowserWindow {
+export function createOverlayWindow(
+  parent: BrowserWindow,
+  opts: { launchedWithFile?: boolean } = {}
+): BrowserWindow {
   const window = new BrowserWindow({
     parent,
     show: false,
@@ -48,9 +54,9 @@ export function createOverlayWindow(parent: BrowserWindow): BrowserWindow {
   // already rounds, but this square overlay covers it).
   enableRoundedCorners(getWindowId(window))
 
-  const target = rendererTarget()
+  const target = rendererTarget(undefined, opts.launchedWithFile ? { launchedWithFile: '1' } : {})
   if (target.url) void window.loadURL(target.url)
-  else void window.loadFile(target.file!)
+  else void window.loadFile(target.file!, target.search ? { search: target.search } : undefined)
 
   return window
 }

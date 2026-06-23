@@ -21,9 +21,16 @@ export const MpvProperty = {
   videoZoom: 'video-zoom',
   videoPanX: 'video-pan-x',
   videoPanY: 'video-pan-y',
+  videoRotate: 'video-rotate',
   loopFile: 'loop-file',
   abLoopA: 'ab-loop-a',
-  abLoopB: 'ab-loop-b'
+  abLoopB: 'ab-loop-b',
+  trackList: 'track-list',
+  sid: 'sid',
+  aid: 'aid',
+  vid: 'vid',
+  playlist: 'playlist',
+  playlistPos: 'playlist-pos'
 } as const
 
 export type MpvPropertyName = (typeof MpvProperty)[keyof typeof MpvProperty]

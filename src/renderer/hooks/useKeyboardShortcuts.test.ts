@@ -15,7 +15,7 @@ describe('matchCommand', () => {
     expect(matchCommand(k('f'), kb)).toBe('flipHorizontal')
     expect(matchCommand(k('r'), kb)).toBe('resetImage')
     expect(matchCommand(k('d'), kb)).toBe('resetView')
-    expect(matchCommand(k('i'), kb)).toBe('toggleImagePanel')
+    expect(matchCommand(k('m'), kb)).toBe('addMarker')
     expect(matchCommand(k('p'), kb)).toBe('popoutControls')
     expect(matchCommand(k('F11'), kb)).toBe('toggleFullscreen')
   })

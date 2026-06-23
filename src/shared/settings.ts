@@ -6,6 +6,8 @@ import {
   asImageProviderId,
   type ImageProviderId
 } from './imageGen'
+import { DEFAULT_ANALYSIS, mergeAnalysis, type AnalysisSettings } from './panels'
+import { FEATURES, DEFAULT_CUSTOM_FEATURES, type Feature } from './featureVisibility'
 
 /**
  * Engine used for motion tracking (motion-follow drawings + keep-centred
@@ -18,6 +20,41 @@ export type TrackingEngine = 'builtin' | 'opencv' | 'ml'
 
 export const TRACKING_ENGINES: TrackingEngine[] = ['builtin', 'opencv', 'ml']
 
+/**
+ * UI complexity tier. Gates *visibility only* — every capability stays reachable
+ * via keybindings regardless of mode. `casual` shows the essentials (play, seek,
+ * volume, speed, tracks, playlist); `standard` (the default) is the full
+ * everyday player; `pro` additionally surfaces the analysis tools (measurement,
+ * scopes, frame-diff, comparison, frame export). `custom` ignores the tiers and
+ * shows exactly the features the user switches on ({@link AppSettings.customFeatures}).
+ * See `featureVisibility.ts` for the per-feature tier map.
+ */
+export type AppMode = 'casual' | 'standard' | 'pro' | 'custom'
+
+export const APP_MODES: AppMode[] = ['casual', 'standard', 'pro', 'custom']
+
+/**
+ * The drawing palette's built-in colour slots. Seeds {@link AppSettings.customDrawColors}
+ * and is the baseline a reset returns to. Every slot (these included) is editable
+ * and persisted, so users can recolour the defaults.
+ */
+export const DEFAULT_DRAW_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ffffff']
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/
+
+/** Normalises a persisted palette: keeps valid hex slots, falls back to defaults. */
+function mergeDrawColors(value: unknown): string[] {
+  if (!Array.isArray(value)) return [...DEFAULT_DRAW_COLORS]
+  const colors = value.filter((c): c is string => typeof c === 'string' && HEX_COLOR.test(c))
+  return colors.length > 0 ? colors : [...DEFAULT_DRAW_COLORS]
+}
+
+function asAppMode(value: unknown): AppMode | null {
+  return value === 'casual' || value === 'standard' || value === 'pro' || value === 'custom'
+    ? value
+    : null
+}
+
 /** Persisted user settings. */
 export interface AppSettings {
   /** The bindings for each command; any one of them triggers it. */
@@ -26,12 +63,8 @@ export interface AppSettings {
   screenshotDir: string
   /** Motion-tracking backend. */
   trackingEngine: TrackingEngine
-  /**
-   * Whether the image-adjustment controls are shown. Persisted so the panel
-   * stays in the state you left it across videos and sessions.
-   */
-  imagePanelVisible: boolean
-  /** User-defined colour slots for the drawing palette (hex strings). */
+  /** The drawing palette's colour slots (hex strings); seeded with, and including
+   * the editable, defaults. See {@link DEFAULT_DRAW_COLORS}. */
   customDrawColors: string[]
   /** Default super-resolution model used by the screenshot editor's upscaler. */
   upscaleModel: UpscaleModelId
@@ -39,17 +72,28 @@ export interface AppSettings {
   imageProvider: ImageProviderId
   /** User-supplied API key per provider (bring-your-own-key; stored locally). */
   imageApiKeys: Record<ImageProviderId, string>
+  /** UI complexity tier; gates which control groups are shown by default. */
+  mode: AppMode
+  /** Per-feature visibility switches used only when {@link mode} is `custom`. */
+  customFeatures: Record<Feature, boolean>
+  /** Pro-mode analysis panel layout + options. */
+  analysis: AnalysisSettings
+  /** Whether the first-run feature tour has been shown (and dismissed) already. */
+  hasSeenIntro: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   keybindings: cloneKeybindings(DEFAULT_KEYBINDINGS),
   screenshotDir: '',
   trackingEngine: 'builtin',
-  imagePanelVisible: false,
-  customDrawColors: [],
+  customDrawColors: [...DEFAULT_DRAW_COLORS],
   upscaleModel: DEFAULT_UPSCALE_MODEL,
   imageProvider: DEFAULT_IMAGE_PROVIDER,
-  imageApiKeys: emptyImageApiKeys()
+  imageApiKeys: emptyImageApiKeys(),
+  mode: 'standard',
+  customFeatures: { ...DEFAULT_CUSTOM_FEATURES },
+  analysis: DEFAULT_ANALYSIS,
+  hasSeenIntro: false
 }
 
 /** A fresh, empty key map with an entry for every known provider. */
@@ -67,6 +111,18 @@ function mergeImageApiKeys(
   for (const id of IMAGE_PROVIDER_IDS) {
     const value = partial?.[id]
     if (typeof value === 'string') result[id] = value
+  }
+  return result
+}
+
+/** Normalises persisted custom-feature switches onto the defaults (per feature). */
+function mergeCustomFeatures(
+  partial: Partial<Record<Feature, unknown>> | undefined
+): Record<Feature, boolean> {
+  const result = {} as Record<Feature, boolean>
+  for (const feature of FEATURES) {
+    const value = partial?.[feature]
+    result[feature] = typeof value === 'boolean' ? value : DEFAULT_CUSTOM_FEATURES[feature]
   }
   return result
 }
@@ -107,10 +163,18 @@ export function mergeSettings(partial: Partial<AppSettings> | null | undefined):
     ),
     screenshotDir: partial?.screenshotDir ?? DEFAULT_SETTINGS.screenshotDir,
     trackingEngine: partial?.trackingEngine ?? DEFAULT_SETTINGS.trackingEngine,
-    imagePanelVisible: partial?.imagePanelVisible ?? DEFAULT_SETTINGS.imagePanelVisible,
-    customDrawColors: partial?.customDrawColors ?? DEFAULT_SETTINGS.customDrawColors,
+    customDrawColors: mergeDrawColors(partial?.customDrawColors),
     upscaleModel: asUpscaleModelId(partial?.upscaleModel) ?? DEFAULT_SETTINGS.upscaleModel,
     imageProvider: asImageProviderId(partial?.imageProvider) ?? DEFAULT_SETTINGS.imageProvider,
-    imageApiKeys: mergeImageApiKeys(partial?.imageApiKeys)
+    imageApiKeys: mergeImageApiKeys(partial?.imageApiKeys),
+    mode: asAppMode(partial?.mode) ?? DEFAULT_SETTINGS.mode,
+    customFeatures: mergeCustomFeatures(
+      partial?.customFeatures as Partial<Record<Feature, unknown>> | undefined
+    ),
+    analysis: mergeAnalysis(partial?.analysis),
+    hasSeenIntro:
+      typeof partial?.hasSeenIntro === 'boolean'
+        ? partial.hasSeenIntro
+        : DEFAULT_SETTINGS.hasSeenIntro
   }
 }

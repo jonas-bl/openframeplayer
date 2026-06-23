@@ -26,6 +26,17 @@ export type PlayerAction =
   | { type: 'setVolume'; value: number }
   | { type: 'toggleMute' }
   | { type: 'setSpeed'; value: number }
+  // --- Tracks (subtitle / audio / video stream selection) ---
+  // `id` selects that stream; `null` disables the stream (mpv `no`).
+  | { type: 'setTrack'; track: 'sub' | 'audio' | 'video'; id: number | null }
+  // Load an external subtitle file and select it (mpv `sub-add`).
+  | { type: 'loadSubtitleFile'; path: string }
+  // --- Playlist / queue ---
+  | { type: 'playlistAppend'; path: string }
+  | { type: 'playlistPlayIndex'; index: number }
+  | { type: 'playlistRemove'; index: number }
+  | { type: 'playlistNext' }
+  | { type: 'playlistPrev' }
   // --- Looping ---
   // One action fully describes the loop config so the (pure) command map can
   // translate it deterministically without needing the prior loop state.
@@ -39,6 +50,8 @@ export type PlayerAction =
   | { type: 'setBrightness'; value: number }
   | { type: 'setContrast'; value: number }
   | { type: 'toggleFlipH' }
+  // Absolute display rotation in degrees (normalised to 0/90/180/270).
+  | { type: 'setRotation'; degrees: number }
   // --- Capture (Feature 3) ---
   | { type: 'screenshot' }
   // --- Reset image corrections (Shortcut R) ---
@@ -47,3 +60,26 @@ export type PlayerAction =
   | { type: 'resetView' }
 
 export type PlayerActionType = PlayerAction['type']
+
+/**
+ * Transport actions that mirror to linked comparison windows when transport
+ * link is on. Deliberately excludes `load` (each window keeps its own media for
+ * A/B comparison) and all view/image-only actions (zoom, pan, brightness… stay
+ * per-window). Volume/mute are also left local so each pane can be muted
+ * independently.
+ */
+const MIRRORED_ACTION_TYPES = new Set<PlayerActionType>([
+  'playPause',
+  'setPaused',
+  'seekAbsolute',
+  'seekRelative',
+  'frameStep',
+  'frameBackStep',
+  'setSpeed',
+  'setLoopReverse'
+])
+
+/** True when `action` should be mirrored to linked comparison windows. */
+export function isMirroredAction(action: PlayerAction): boolean {
+  return MIRRORED_ACTION_TYPES.has(action.type)
+}

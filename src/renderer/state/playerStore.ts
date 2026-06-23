@@ -21,6 +21,8 @@ interface PlayerStore {
   dispatch: (action: PlayerAction) => void
   /** Open the native picker and load the chosen file. */
   openFile: () => Promise<void>
+  /** Open the native picker and append the chosen file to the playlist. */
+  addToPlaylist: () => Promise<void>
 }
 
 export const usePlayerStore = create<PlayerStore>((set) => ({
@@ -37,6 +39,11 @@ export const usePlayerStore = create<PlayerStore>((set) => ({
   openFile: async () => {
     const path = await window.api.openFile()
     if (path) void window.api.dispatch({ type: 'load', path })
+  },
+
+  addToPlaylist: async () => {
+    const path = await window.api.openFile()
+    if (path) void window.api.dispatch({ type: 'playlistAppend', path })
   }
 }))
 

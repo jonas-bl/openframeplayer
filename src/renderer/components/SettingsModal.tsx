@@ -3,6 +3,7 @@ import {
   APP_COMMANDS,
   COMMAND_META,
   DEFAULT_KEYBINDINGS,
+  findBindingConflicts,
   formatBinding,
   makeBinding,
   WHEEL_DOWN,
@@ -10,7 +11,8 @@ import {
   type AppCommand,
   type CommandGroup
 } from '@shared/commands'
-import { TRACKING_ENGINES, type TrackingEngine } from '@shared/settings'
+import { APP_MODES, TRACKING_ENGINES, type AppMode, type TrackingEngine } from '@shared/settings'
+import { FEATURES, FEATURE_LABELS } from '@shared/featureVisibility'
 import type { UpdateStatus } from '@shared/update'
 import { IMAGE_PROVIDERS, IMAGE_PROVIDER_IDS, type ImageProviderId } from '@shared/imageGen'
 import {
@@ -83,26 +85,35 @@ export function SettingsModal(): JSX.Element {
   const [section, setSection] = useState<Section>('General')
   const [capturing, setCapturing] = useState<AppCommand | null>(null)
   const addKeybinding = useSettingsStore((s) => s.addKeybinding)
+  const keybindings = useSettingsStore((s) => s.settings.keybindings)
+  // Surfaced when a just-captured key already triggers other commands.
+  const [warning, setWarning] = useState<BindingWarning | null>(null)
 
   // While capturing, intercept the next key or wheel notch (in the capture
   // phase, so the global handlers never see it) and add it as a new binding —
   // holding Ctrl/Alt records a modifier, so e.g. Ctrl+scroll becomes a chord.
   useEffect(() => {
     if (!capturing) return
+    // Add the binding, but first flag any other commands it already triggers
+    // (the binding is still kept — the warning just tells the user what clashes).
+    const commit = (binding: string): void => {
+      const conflicts = findBindingConflicts(keybindings, binding, capturing)
+      setWarning(conflicts.length ? { command: capturing, binding, conflicts } : null)
+      addKeybinding(capturing, binding)
+      setCapturing(null)
+    }
     const onKey = (event: KeyboardEvent): void => {
       event.preventDefault()
       event.stopImmediatePropagation()
       if (event.key === 'Escape') return setCapturing(null)
       if (MODIFIER_KEYS.has(event.key)) return // wait for the non-modifier key
-      addKeybinding(capturing, makeBinding(chordModifier(event), event.key))
-      setCapturing(null)
+      commit(makeBinding(chordModifier(event), event.key))
     }
     const onWheel = (event: WheelEvent): void => {
       event.preventDefault()
       event.stopImmediatePropagation()
       const key = event.deltaY < 0 ? WHEEL_UP : WHEEL_DOWN
-      addKeybinding(capturing, makeBinding(chordModifier(event), key))
-      setCapturing(null)
+      commit(makeBinding(chordModifier(event), key))
     }
     window.addEventListener('keydown', onKey, true)
     window.addEventListener('wheel', onWheel, { capture: true, passive: false })
@@ -110,7 +121,7 @@ export function SettingsModal(): JSX.Element {
       window.removeEventListener('keydown', onKey, true)
       window.removeEventListener('wheel', onWheel, true)
     }
-  }, [capturing, addKeybinding])
+  }, [capturing, addKeybinding, keybindings])
 
   return (
     <div
@@ -131,6 +142,7 @@ export function SettingsModal(): JSX.Element {
                 onClick={() => {
                   setSection(s)
                   setCapturing(null)
+                  setWarning(null)
                 }}
                 className={`mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ${
                   section === s
@@ -185,7 +197,12 @@ export function SettingsModal(): JSX.Element {
               <KeybindingSection
                 group={section}
                 capturing={capturing}
-                onCapture={setCapturing}
+                onCapture={(command) => {
+                  setWarning(null)
+                  setCapturing(command)
+                }}
+                warning={warning}
+                onDismissWarning={() => setWarning(null)}
               />
             )}
           </div>
@@ -208,7 +225,6 @@ export function SettingsModal(): JSX.Element {
 function GeneralSection(): JSX.Element {
   const screenshotDir = useSettingsStore((s) => s.settings.screenshotDir)
   const trackingEngine = useSettingsStore((s) => s.settings.trackingEngine)
-  const imagePanelVisible = useSettingsStore((s) => s.settings.imagePanelVisible)
 
   const chooseFolder = async (): Promise<void> => {
     const dir = await window.api.chooseDirectory()
@@ -217,6 +233,8 @@ function GeneralSection(): JSX.Element {
 
   return (
     <div className="space-y-6">
+      <ModeSection />
+
       <section>
         <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Screenshots</h3>
         <div className="flex items-center gap-2">
@@ -238,23 +256,6 @@ function GeneralSection(): JSX.Element {
             </button>
           )}
         </div>
-      </section>
-
-      <section>
-        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Panels</h3>
-        <label className="flex cursor-pointer items-center justify-between rounded-lg px-2 py-1.5 hover:bg-surface-700/60">
-          <span className="text-sm text-zinc-200">Show image controls</span>
-          <input
-            type="checkbox"
-            checked={imagePanelVisible}
-            onChange={(e) => void window.api.updateSettings({ imagePanelVisible: e.target.checked })}
-            className="h-4 w-4 accent-accent"
-          />
-        </label>
-        <p className="mt-1 px-2 text-[11px] leading-relaxed text-zinc-500">
-          Stays applied across videos and sessions. Also toggled with the sliders button or the
-          &ldquo;I&rdquo; shortcut.
-        </p>
       </section>
 
       <section>
@@ -285,6 +286,92 @@ function GeneralSection(): JSX.Element {
       <AiImageSection />
 
       <UpdatesSection />
+    </div>
+  )
+}
+
+const MODE_INFO: Record<AppMode, { label: string; blurb: string }> = {
+  casual: {
+    label: 'Casual',
+    blurb: 'Just the essentials: play, seek, volume, speed, subtitles & playlist.'
+  },
+  standard: {
+    label: 'Standard',
+    blurb: 'The full everyday player — frame stepping, loops, zoom, annotations & markers.'
+  },
+  pro: {
+    label: 'Pro',
+    blurb: 'Everything, plus the analysis tools: measurement, scopes, frame-diff, comparison & export.'
+  },
+  custom: {
+    label: 'Custom',
+    blurb: 'Pick exactly which controls appear — toggle any feature on or off below.'
+  }
+}
+
+/**
+ * Interface-mode picker. Modes gate *visibility only* — every action stays
+ * reachable via its keybinding regardless of mode — so this just tunes how much
+ * of the control surface is shown by default.
+ */
+function ModeSection(): JSX.Element {
+  const mode = useSettingsStore((s) => s.settings.mode)
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Interface mode</h3>
+      <div className="grid grid-cols-2 gap-1.5">
+        {APP_MODES.map((m) => (
+          <button
+            key={m}
+            onClick={() => void window.api.updateSettings({ mode: m })}
+            className={`rounded-lg border px-2.5 py-2 text-left ${
+              mode === m
+                ? 'border-accent bg-accent/15 text-accent'
+                : 'border-surface-600 text-zinc-300 hover:border-accent/60 hover:text-zinc-100'
+            }`}
+          >
+            <span className="text-sm font-medium">{MODE_INFO[m].label}</span>
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">{MODE_INFO[mode].blurb}</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-zinc-600">
+        Modes only change what&apos;s shown — every action stays available through its keyboard
+        shortcut.
+      </p>
+      {mode === 'custom' && <CustomFeatures />}
+    </section>
+  )
+}
+
+/**
+ * Custom-mode feature switches. Shown only when the mode is `custom`; each row
+ * toggles one feature's visibility (persisted in `customFeatures`). Hidden
+ * features stay reachable by their keyboard shortcut, like the tiered modes.
+ */
+function CustomFeatures(): JSX.Element {
+  const customFeatures = useSettingsStore((s) => s.settings.customFeatures)
+  const toggleFeature = useSettingsStore((s) => s.toggleFeature)
+
+  return (
+    <div className="mt-3 rounded-lg border border-surface-700 p-2">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+        {FEATURES.map((feature) => (
+          <label
+            key={feature}
+            className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-zinc-200 hover:bg-surface-700/60"
+          >
+            <span className="truncate">{FEATURE_LABELS[feature]}</span>
+            <input
+              type="checkbox"
+              checked={customFeatures[feature]}
+              onChange={() => toggleFeature(feature)}
+              className="h-4 w-4 shrink-0 accent-accent"
+            />
+          </label>
+        ))}
+      </div>
     </div>
   )
 }
@@ -543,14 +630,36 @@ function UpscaleSection(): JSX.Element {
   )
 }
 
+/** A just-captured binding that also triggers `conflicts` (other commands). */
+interface BindingWarning {
+  command: AppCommand
+  binding: string
+  conflicts: AppCommand[]
+}
+
+/** Joins command labels into a readable list: "A", "A & B", "A, B & C". */
+function listCommandLabels(commands: AppCommand[]): string {
+  const labels = commands.map((c) => COMMAND_META[c].label)
+  if (labels.length <= 1) return labels.join('')
+  return `${labels.slice(0, -1).join(', ')} & ${labels[labels.length - 1]}`
+}
+
 interface KeybindingSectionProps {
   group: CommandGroup
   capturing: AppCommand | null
   onCapture: (command: AppCommand) => void
+  warning: BindingWarning | null
+  onDismissWarning: () => void
 }
 
 /** A list of commands in one group, each with its bindings + an Add button. */
-function KeybindingSection({ group, capturing, onCapture }: KeybindingSectionProps): JSX.Element {
+function KeybindingSection({
+  group,
+  capturing,
+  onCapture,
+  warning,
+  onDismissWarning
+}: KeybindingSectionProps): JSX.Element {
   return (
     <div>
       <p className="mb-4 text-[11px] leading-relaxed text-zinc-500">
@@ -559,6 +668,27 @@ function KeybindingSection({ group, capturing, onCapture }: KeybindingSectionPro
         Hold <span className="font-mono text-zinc-400">Ctrl</span> or{' '}
         <span className="font-mono text-zinc-400">Alt</span> to add a modifier (e.g. Ctrl + scroll).
       </p>
+      {warning && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <svg width="15" height="15" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="mt-px shrink-0">
+            <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+          </svg>
+          <div className="min-w-0 flex-1">
+            <span className="font-mono text-amber-100">{formatBinding(warning.binding)}</span> is also
+            bound to <span className="font-medium">{listCommandLabels(warning.conflicts)}</span>. Both
+            will fire when you press it.
+          </div>
+          <button
+            onClick={onDismissWarning}
+            aria-label="Dismiss warning"
+            className="rounded p-0.5 text-amber-300/70 hover:bg-amber-500/20 hover:text-amber-100"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+      )}
       <div className="space-y-1">
         {APP_COMMANDS.filter((c) => COMMAND_META[c].group === group).map((command) => (
           <KeybindingRow
@@ -582,29 +712,47 @@ interface KeybindingRowProps {
 /** One command's row: its label, removable binding chips, and an Add button. */
 function KeybindingRow({ command, capturing, onCapture }: KeybindingRowProps): JSX.Element {
   const bindings = useSettingsStore((s) => s.settings.keybindings[command])
+  const keybindings = useSettingsStore((s) => s.settings.keybindings)
   const removeKeybinding = useSettingsStore((s) => s.removeKeybinding)
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-700/60">
       <span className="shrink-0 text-sm text-zinc-200">{COMMAND_META[command].label}</span>
       <div className="flex flex-wrap items-center justify-end gap-1.5">
-        {bindings.map((binding) => (
-          <span
-            key={binding}
-            className="group flex items-center gap-1 rounded-md border border-surface-600 bg-surface-900 py-1 pl-2 pr-1 font-mono text-xs text-zinc-300"
-          >
-            {formatBinding(binding)}
-            <button
-              onClick={() => removeKeybinding(command, binding)}
-              aria-label={`Remove ${formatBinding(binding)}`}
-              className="rounded p-0.5 text-zinc-500 hover:bg-surface-600 hover:text-red-400"
+        {bindings.map((binding) => {
+          // Other commands this same key already triggers — flag the clash so
+          // it's visible at a glance, not just at the moment of binding.
+          const conflicts = findBindingConflicts(keybindings, binding, command)
+          const conflictHint =
+            conflicts.length > 0 ? `Also bound to ${listCommandLabels(conflicts)}` : undefined
+          return (
+            <span
+              key={binding}
+              title={conflictHint}
+              className={`group flex items-center gap-1 rounded-md border py-1 pl-2 pr-1 font-mono text-xs ${
+                conflicts.length > 0
+                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-200'
+                  : 'border-surface-600 bg-surface-900 text-zinc-300'
+              }`}
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-          </span>
-        ))}
+              {conflicts.length > 0 && (
+                <svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-amber-400" aria-label="Conflicting shortcut">
+                  <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                </svg>
+              )}
+              {formatBinding(binding)}
+              <button
+                onClick={() => removeKeybinding(command, binding)}
+                aria-label={`Remove ${formatBinding(binding)}`}
+                className="rounded p-0.5 text-zinc-500 hover:bg-surface-600 hover:text-red-400"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </span>
+          )
+        })}
         {bindings.length === 0 && !capturing && (
           <span className="text-xs italic text-zinc-600">Unbound</span>
         )}

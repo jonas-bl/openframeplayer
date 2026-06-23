@@ -4,6 +4,7 @@ import { SPEED_DEFAULT, SPEED_MAX, SPEED_MIN, SPEED_STEP } from '@shared/player-
 import { usePlayerStore } from '../state/playerStore'
 import { useUiStore } from '../state/uiStore'
 import { useAnnotationStore } from '../state/annotationStore'
+import { useMarkersStore, nextMarkerTime, prevMarkerTime } from '../state/markersStore'
 
 const ZOOM_STEP = 0.2
 
@@ -46,6 +47,15 @@ function toggleLoopReverse(): void {
   dispatch({ type: 'setLoopReverse', reverse: !state.playback.loopReverse })
 }
 
+/** Jumps to the marker just after / before the playhead (no-op if none). */
+function jumpMarker(direction: 'next' | 'prev'): void {
+  const { dispatch, state } = usePlayerStore.getState()
+  const { markers } = useMarkersStore.getState()
+  const pos = state.playback.position
+  const target = direction === 'next' ? nextMarkerTime(markers, pos) : prevMarkerTime(markers, pos)
+  if (target !== null) dispatch({ type: 'seekAbsolute', seconds: target, precise: true })
+}
+
 /**
  * Returns `runCommand`, the single place that turns an {@link AppCommand} into
  * its effect. Both keyboard shortcuts and toolbar buttons go through here, so a
@@ -54,7 +64,6 @@ function toggleLoopReverse(): void {
 export function useCommands(): (command: AppCommand) => void {
   const dispatch = usePlayerStore((s) => s.dispatch)
   const openFile = usePlayerStore((s) => s.openFile)
-  const toggleImagePanel = useUiStore((s) => s.toggleImagePanel)
   const openSettings = useUiStore((s) => s.openSettings)
 
   return useCallback(
@@ -82,6 +91,12 @@ export function useCommands(): (command: AppCommand) => void {
           return dispatch({ type: 'setLoop', mode: 'off', start: null, end: null })
         case 'toggleLoopReverse':
           return toggleLoopReverse()
+        case 'addMarker':
+          return useMarkersStore.getState().add(usePlayerStore.getState().state.playback.position)
+        case 'nextMarker':
+          return jumpMarker('next')
+        case 'prevMarker':
+          return jumpMarker('prev')
         case 'zoomIn':
           return dispatch({ type: 'nudgeZoom', delta: ZOOM_STEP })
         case 'zoomOut':
@@ -112,14 +127,14 @@ export function useCommands(): (command: AppCommand) => void {
           return window.api.newWindow()
         case 'toggleFullscreen':
           return window.windowControls.toggleFullscreen()
-        case 'toggleImagePanel':
-          return toggleImagePanel()
+        case 'toggleAlwaysOnTop':
+          return window.windowControls.toggleAlwaysOnTop()
         case 'popoutControls':
           return window.api.setControlsPopout(!useUiStore.getState().popoutOpen)
         case 'openSettings':
           return openSettings()
       }
     },
-    [dispatch, openFile, toggleImagePanel, openSettings]
+    [dispatch, openFile, openSettings]
   )
 }

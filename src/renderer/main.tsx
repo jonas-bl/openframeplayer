@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { ControlsView } from './components/ControlsView'
+import { PanelsView } from './components/PanelsView'
 import { ScreenshotEditorView } from './components/ScreenshotEditorView'
 import './styles/index.css'
 
@@ -12,7 +13,14 @@ if (!container) throw new Error('Root container #root not found')
 // (?view=controls), and the screenshot editor (?view=editor). The query param
 // selects which root to mount.
 const view = new URLSearchParams(window.location.search).get('view')
-const Root = view === 'controls' ? ControlsView : view === 'editor' ? ScreenshotEditorView : App
+const Root =
+  view === 'controls'
+    ? ControlsView
+    : view === 'panels'
+      ? PanelsView
+      : view === 'editor'
+        ? ScreenshotEditorView
+        : App
 
 createRoot(container).render(
   <StrictMode>

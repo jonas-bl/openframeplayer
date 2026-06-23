@@ -247,3 +247,67 @@ export const GripIcon = (p: IconProps): JSX.Element => (
     <circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none" />
   </Svg>
 )
+
+/** Subtitles / closed-caption glyph. */
+export const SubtitlesIcon = (p: IconProps): JSX.Element => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M7 14h4M13 14h4M7 11h2M11 11h6" />
+  </Svg>
+)
+
+/** Audio-track glyph (speaker + waves). */
+export const AudioTrackIcon = (p: IconProps): JSX.Element => (
+  <Svg {...p}>
+    <path d="M5 9v6h3l4 3V6L8 9H5Z" />
+    <path d="M16 9a4 4 0 0 1 0 6" />
+  </Svg>
+)
+
+/** Bookmark / marker glyph. */
+export const BookmarkIcon = (p: IconProps): JSX.Element => (
+  <Svg {...p}>
+    <path d="M6 4h12v16l-6-4-6 4V4Z" />
+  </Svg>
+)
+
+/** Playlist / queue glyph. */
+export const PlaylistIcon = (p: IconProps): JSX.Element => (
+  <Svg {...p}>
+    <path d="M4 6h11M4 12h11M4 18h7" />
+    <path d="M17 13v6l4-2-4-2Z" fill="currentColor" stroke="none" />
+  </Svg>
+)
+
+/** Export / save-out glyph (tray with an upward arrow). */
+export const ExportIcon = (p: IconProps): JSX.Element => (
+  <Svg {...p}>
+    <path d="M12 3v11m0-11 4 4m-4-4-4 4" />
+    <path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+  </Svg>
+)
+
+/** Rotate-clockwise glyph (arrow curving over the top). */
+export const RotateIcon = (p: IconProps): JSX.Element => (
+  <Svg {...p}>
+    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+    <path d="M21 4v4h-4" />
+  </Svg>
+)
+
+/** Pin / always-on-top glyph. */
+export const PinIcon = (p: IconProps): JSX.Element => (
+  <Svg {...p}>
+    <path d="M9 4h6l-1 6 3 3H7l3-3-1-6Z" />
+    <path d="M12 16v4" />
+  </Svg>
+)
+
+/** Chain-link glyph for linking comparison windows' transport. */
+export const LinkIcon = (p: IconProps): JSX.Element => (
+  <Svg {...p}>
+    <path d="M9.5 14.5 14.5 9.5" />
+    <path d="M8.5 11 7 12.5a3.5 3.5 0 0 0 5 5l1.5-1.5" />
+    <path d="M15.5 13 17 11.5a3.5 3.5 0 0 0-5-5L10.5 8" />
+  </Svg>
+)
